@@ -42,116 +42,216 @@ static CommCtrl_t Comm_Flag = C_READY;
 
 static void CommTimeOut_CallBack(ErrCode_t errcode);
 static void LTR329_ConfigSclMode(GPIO_ModeType mode);
+static uint8_t LTR329_GetGainValue(uint8_t gain);
+static uint16_t LTR329_GetIntegrationTimeMs(uint8_t int_time);
+static uint16_t LTR329_GetMeasurementRateMs(uint8_t meas_rate);
+
+static uint8_t LTR329_GetGainValue(uint8_t gain)
+{
+    switch (gain)
+    {
+        case LTR329_GAIN_1X:
+            return 1;
+        case LTR329_GAIN_2X:
+            return 2;
+        case LTR329_GAIN_4X:
+            return 4;
+        case LTR329_GAIN_8X:
+            return 8;
+        case LTR329_GAIN_48X:
+            return 48;
+        case LTR329_GAIN_96X:
+            return 96;
+        default:
+            return 0;
+    }
+}
+
+static uint16_t LTR329_GetIntegrationTimeMs(uint8_t int_time)
+{
+    switch (int_time)
+    {
+        case LTR329_INT_50MS:
+            return 50;
+        case LTR329_INT_100MS:
+            return 100;
+        case LTR329_INT_150MS:
+            return 150;
+        case LTR329_INT_200MS:
+            return 200;
+        case LTR329_INT_250MS:
+            return 250;
+        case LTR329_INT_300MS:
+            return 300;
+        case LTR329_INT_350MS:
+            return 350;
+        case LTR329_INT_400MS:
+            return 400;
+        default:
+            return 0;
+    }
+}
+
+static uint16_t LTR329_GetMeasurementRateMs(uint8_t meas_rate)
+{
+    switch (meas_rate)
+    {
+        case LTR329_RATE_50MS:
+            return 50;
+        case LTR329_RATE_100MS:
+            return 100;
+        case LTR329_RATE_200MS:
+            return 200;
+        case LTR329_RATE_500MS:
+            return 500;
+        case LTR329_RATE_1000MS:
+            return 1000;
+        case LTR329_RATE_2000MS:
+            return 2000;
+        default:
+            return 0;
+    }
+}
 
 int8_t LTR329_Init(uint8_t gain, uint8_t int_time, uint8_t meas_rate)
 {
-    delay_ms(250);
     uint8_t id = 0;
-    i2c_master_init();
+    uint16_t int_time_ms = LTR329_GetIntegrationTimeMs(int_time);
+    uint16_t meas_rate_ms = LTR329_GetMeasurementRateMs(meas_rate);
+
+    if ((LTR329_GetGainValue(gain) == 0) ||
+        (int_time_ms == 0) ||
+        (meas_rate_ms == 0) ||
+        (int_time_ms > meas_rate_ms))
+    {
+        return LTR329_ERR_CONFIG;
+    }
+
+    delay_ms(250);
+    if (i2c_master_init() != 0)
+    {
+        return LTR329_ERR_I2C;
+    }
 
     // 检查ID,器件是否存在
-    LTR329_ReadRegs(LTR329_REG_MANUFAC_ID, &id, 1);
+    if (LTR329_ReadRegs(LTR329_REG_MANUFAC_ID, &id, 1) != 0)
+    {
+        return LTR329_ERR_I2C;
+    }
     if (id != 0x05)
     {
         return LTR329_ERR_ID;
     }
 
-    LTR329_WriteReg(LTR329_REG_ALS_CONTR, gain | 0x01);
+    if (LTR329_WriteReg(LTR329_REG_MEAS_RATE, meas_rate | int_time) != 0)
+    {
+        return LTR329_ERR_I2C;
+    }
+    if (LTR329_WriteReg(LTR329_REG_ALS_CONTR, gain | 0x01) != 0)
+    {
+        return LTR329_ERR_I2C;
+    }
 
-    LTR329_WriteReg(LTR329_REG_MEAS_RATE, meas_rate | int_time);
-    delay_ms(100);
+    delay_xms((uint32_t)int_time_ms + 10u);
     return LTR329_OK;
 }
 
 uint8_t LTR329_ReadRawData(uint16_t *ch0, uint16_t *ch1)
 {
-    if (ch0 == NULL || ch1 == NULL)
+    uint8_t status = 0;
+    uint8_t buf[4] = {0};
+
+    if ((ch0 == 0) || (ch1 == 0))
+    {
+        return LTR329_ERR_PARAM;
+    }
+
+    if (LTR329_ReadRegs(LTR329_REG_STATUS, &status, 1) != 0)
+    {
+        return LTR329_ERR_I2C;
+    }
+    if ((status & LTR329_STATUS_DATA_INVALID) != 0)
     {
         return LTR329_ERR_DATA_INVALID;
     }
-    uint8_t status = 0;
-    uint8_t buf[4] = {0};
-    LTR329_ReadRegs(LTR329_REG_STATUS, &status, 1);
-    if (((status & LTR329_STATUS_DATA_VALID) == 0) && (status & LTR329_STATUS_NEW_DATA))
+    if ((status & LTR329_STATUS_NEW_DATA) == 0)
     {
-       uint8_t ret = LTR329_ReadRegs(LTR329_REG_DATA_CH1_0, buf, 4);
-       if(ret != 0) // I2C通信失败
-       {
-              return LTR329_ERR_I2C;
-       }
-        *ch1 = (buf[1] << 8) | buf[0];
-        *ch0 = (buf[3] << 8) | buf[2];
-        return LTR329_OK;
+        return LTR329_ERR_NO_NEW_DATA;
     }
-    return LTR329_ERR_DATA_INVALID;
+
+    if (LTR329_ReadRegs(LTR329_REG_DATA_CH1_0, buf, 4) != 0)
+    {
+        return LTR329_ERR_I2C;
+    }
+
+    *ch1 = ((uint16_t)buf[1] << 8) | buf[0];
+    *ch0 = ((uint16_t)buf[3] << 8) | buf[2];
+    return LTR329_OK;
 }
 
-float LTR329_CalculateLux( uint8_t gain, uint8_t int_time, float pFactor)
+uint8_t LTR329_CalculateLux(uint8_t gain, uint8_t int_time,
+                            float pFactor, float *lux)
 {
+    uint8_t ret;
+    uint8_t gain_value;
+    uint16_t int_time_ms;
     uint16_t ch0 = 0;
     uint16_t ch1 = 0;
-    LTR329_ReadRawData(&ch0, &ch1);
-    
+    uint32_t sum;
     float ratio;
-    float lux;
-    float gain_factor;
-    float time_factor;
+    float scale;
 
-    // 零照度保护，防止除零
-    if ((ch0 + ch1) == 0) {
-        return 0.0f;
+    if ((lux == 0) || (pFactor <= 0.0f))
+    {
+        return LTR329_ERR_PARAM;
     }
 
-    // 1. 计算增益系数
-    switch (gain) {
-        case LTR329_GAIN_1X:  gain_factor = 1.0f;  break;
-        case LTR329_GAIN_2X:  gain_factor = 2.0f;  break;
-        case LTR329_GAIN_4X:  gain_factor = 4.0f;  break;
-        case LTR329_GAIN_8X:  gain_factor = 8.0f;  break;
-        case LTR329_GAIN_48X: gain_factor = 48.0f; break;
-        case LTR329_GAIN_96X: gain_factor = 96.0f; break;
-        default:              gain_factor = 1.0f;  break;
+    gain_value = LTR329_GetGainValue(gain);
+    int_time_ms = LTR329_GetIntegrationTimeMs(int_time);
+    if ((gain_value == 0) || (int_time_ms == 0))
+    {
+        return LTR329_ERR_CONFIG;
     }
 
-    // 2. 计算积分时间系数（以100ms为基准1.0）
-    switch (int_time) {
-        case LTR329_INT_50MS:  time_factor = 0.5f;  break;
-        case LTR329_INT_100MS: time_factor = 1.0f;  break;
-        case LTR329_INT_150MS: time_factor = 1.5f;  break;
-        case LTR329_INT_200MS: time_factor = 2.0f;  break;
-        case LTR329_INT_250MS: time_factor = 2.5f;  break;
-        case LTR329_INT_300MS: time_factor = 3.0f;  break;
-        case LTR329_INT_350MS: time_factor = 3.5f;  break;
-        case LTR329_INT_400MS: time_factor = 4.0f;  break;
-        default:               time_factor = 1.0f;  break;
+    ret = LTR329_ReadRawData(&ch0, &ch1);
+    if (ret != LTR329_OK)
+    {
+        return ret;
     }
 
-    // 3. 计算红外占比 ratio = CH1 / (CH0 + CH1)  官方标准定义
-    ratio = (float)ch1 / (float)(ch0 + ch1);
-
-    // 4. 官方附录A 三档分段公式
-    if (ratio < 0.45f) {
-        lux = (1.7743f * ch0 + 1.1059f * ch1);
-    }
-    else if (ratio < 0.64f) {
-        lux = (4.2785f * ch0 - 1.9548f * ch1);
-    }
-    else if (ratio < 0.85f) {
-        lux = (0.5926f * ch0 + 0.1185f * ch1);
-    }
-    else {
-        // 红外占比过高，可见光分量可忽略，返回0
-        return 0.0f;
+    sum = (uint32_t)ch0 + ch1;
+    if (sum == 0)
+    {
+        *lux = 0.0f;
+        return LTR329_OK;
     }
 
-    // 5. 归一化：除以增益、积分时间、窗口衰减系数
-    lux = lux / gain_factor / time_factor / pFactor;
+    ratio = (float)ch1 / (float)sum;
+    scale = (float)gain_value * ((float)int_time_ms / 100.0f) * pFactor;
 
-    // 防止出现负值
-    return (lux > 0.0f) ? lux : 0.0f;
+    if (ratio < 0.45f)
+    {
+        *lux = (1.7743f * ch0 + 1.1059f * ch1) / scale;
+    }
+    else if (ratio < 0.64f)
+    {
+        *lux = (4.2785f * ch0 - 1.9548f * ch1) / scale;
+    }
+    else if (ratio < 0.85f)
+    {
+        *lux = (0.5926f * ch0 + 0.1185f * ch1) / scale;
+    }
+    else
+    {
+        *lux = 0.0f;
+    }
 
+    if (*lux < 0.0f)
+    {
+        *lux = 0.0f;
+    }
 
-    return lux;
+    return LTR329_OK;
 }
 
 int LTR329_WriteReg(uint8_t reg, uint8_t value)

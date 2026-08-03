@@ -53,7 +53,7 @@
 #define LTR329_RATE_2000MS       0x05
 
 // 状态寄存器标志位
-#define LTR329_STATUS_DATA_VALID 0x80   // 数据有效标志（0=有效，1=无效）
+#define LTR329_STATUS_DATA_INVALID 0x80 // 数据无效标志（0=有效，1=无效）
 #define LTR329_STATUS_NEW_DATA   0x04   // 新数据标志（1=未读取）
 
 // 函数返回值
@@ -61,6 +61,9 @@
 #define LTR329_ERR_ID            1      // 器件ID不匹配
 #define LTR329_ERR_I2C           2      // I2C通信失败
 #define LTR329_ERR_DATA_INVALID  3      // 数据无效
+#define LTR329_ERR_PARAM         4      // 输入参数无效
+#define LTR329_ERR_CONFIG        5      // 配置参数无效
+#define LTR329_ERR_NO_NEW_DATA   6      // 暂无新数据
 
 int i2c_master_init(void);
 int i2c_master_send(uint8_t* data, int len);
@@ -70,5 +73,7 @@ int LTR329_WriteReg(uint8_t reg, uint8_t value);
 int LTR329_ReadRegs(uint8_t reg, uint8_t* data, uint16_t len);
 int8_t LTR329_Init(uint8_t gain, uint8_t int_time, uint8_t meas_rate);
 uint8_t LTR329_ReadRawData(uint16_t *ch0, uint16_t *ch1);
+uint8_t LTR329_CalculateLux(uint8_t gain, uint8_t int_time,
+                            float pFactor, float *lux);
 
 #endif
