@@ -65,18 +65,95 @@ int8_t LTR329_Init(uint8_t gain, uint8_t int_time, uint8_t meas_rate)
 
 uint8_t LTR329_ReadRawData(uint16_t *ch0, uint16_t *ch1)
 {
-    uint8_t status;
+    if (ch0 == NULL || ch1 == NULL)
+    {
+        return LTR329_ERR_DATA_INVALID;
+    }
+    uint8_t status = 0;
     uint8_t buf[4] = {0};
     LTR329_ReadRegs(LTR329_REG_STATUS, &status, 1);
-    if ((status & LTR329_STATUS_DATA_VALID) && (status & LTR329_STATUS_NEW_DATA))
+    if (((status & LTR329_STATUS_DATA_VALID) == 0) && (status & LTR329_STATUS_NEW_DATA))
     {
-        LTR329_ReadRegs(LTR329_REG_DATA_CH1_0, buf, 4);
-        *ch0 = (buf[1] << 8) | buf[0];
-        *ch1 = (buf[3] << 8) | buf[2];
+       uint8_t ret = LTR329_ReadRegs(LTR329_REG_DATA_CH1_0, buf, 4);
+       if(ret != 0) // I2C通信失败
+       {
+              return LTR329_ERR_I2C;
+       }
+        *ch1 = (buf[1] << 8) | buf[0];
+        *ch0 = (buf[3] << 8) | buf[2];
         return LTR329_OK;
     }
     return LTR329_ERR_DATA_INVALID;
 }
+
+float LTR329_CalculateLux( uint8_t gain, uint8_t int_time, float pFactor)
+{
+    uint16_t ch0 = 0;
+    uint16_t ch1 = 0;
+    LTR329_ReadRawData(&ch0, &ch1);
+    
+    float ratio;
+    float lux;
+    float gain_factor;
+    float time_factor;
+
+    // 零照度保护，防止除零
+    if ((ch0 + ch1) == 0) {
+        return 0.0f;
+    }
+
+    // 1. 计算增益系数
+    switch (gain) {
+        case LTR329_GAIN_1X:  gain_factor = 1.0f;  break;
+        case LTR329_GAIN_2X:  gain_factor = 2.0f;  break;
+        case LTR329_GAIN_4X:  gain_factor = 4.0f;  break;
+        case LTR329_GAIN_8X:  gain_factor = 8.0f;  break;
+        case LTR329_GAIN_48X: gain_factor = 48.0f; break;
+        case LTR329_GAIN_96X: gain_factor = 96.0f; break;
+        default:              gain_factor = 1.0f;  break;
+    }
+
+    // 2. 计算积分时间系数（以100ms为基准1.0）
+    switch (int_time) {
+        case LTR329_INT_50MS:  time_factor = 0.5f;  break;
+        case LTR329_INT_100MS: time_factor = 1.0f;  break;
+        case LTR329_INT_150MS: time_factor = 1.5f;  break;
+        case LTR329_INT_200MS: time_factor = 2.0f;  break;
+        case LTR329_INT_250MS: time_factor = 2.5f;  break;
+        case LTR329_INT_300MS: time_factor = 3.0f;  break;
+        case LTR329_INT_350MS: time_factor = 3.5f;  break;
+        case LTR329_INT_400MS: time_factor = 4.0f;  break;
+        default:               time_factor = 1.0f;  break;
+    }
+
+    // 3. 计算红外占比 ratio = CH1 / (CH0 + CH1)  官方标准定义
+    ratio = (float)ch1 / (float)(ch0 + ch1);
+
+    // 4. 官方附录A 三档分段公式
+    if (ratio < 0.45f) {
+        lux = (1.7743f * ch0 + 1.1059f * ch1);
+    }
+    else if (ratio < 0.64f) {
+        lux = (4.2785f * ch0 - 1.9548f * ch1);
+    }
+    else if (ratio < 0.85f) {
+        lux = (0.5926f * ch0 + 0.1185f * ch1);
+    }
+    else {
+        // 红外占比过高，可见光分量可忽略，返回0
+        return 0.0f;
+    }
+
+    // 5. 归一化：除以增益、积分时间、窗口衰减系数
+    lux = lux / gain_factor / time_factor / pFactor;
+
+    // 防止出现负值
+    return (lux > 0.0f) ? lux : 0.0f;
+
+
+    return lux;
+}
+
 int LTR329_WriteReg(uint8_t reg, uint8_t value)
 {
     uint8_t data[2];

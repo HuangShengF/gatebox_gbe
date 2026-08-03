@@ -15,7 +15,7 @@
 // #define LTR329_REG_DATA_CH0_HIGH 0x8B
 // #define LTR329_REG_STATUS        0x8C
 
-// 寄存器地址定义
+// 寄存器地址定义   
 #define LTR329_REG_ALS_CONTR     0x80   // ALS控制寄存器
 #define LTR329_REG_MEAS_RATE     0x85   // 测量速率寄存器
 #define LTR329_REG_PART_ID       0x86   // 部件ID寄存器
