@@ -325,7 +325,7 @@
             <wLevel>2</wLevel>
             <uThumb>0</uThumb>
             <uSurpInc>0</uSurpInc>
-            <uC99>0</uC99>
+            <uC99>1</uC99>
             <uGnu>0</uGnu>
             <useXO>0</useXO>
             <v6Lang>1</v6Lang>
@@ -627,6 +627,11 @@
               <FileName>log.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\log.c</FilePath>
+            </File>
+            <File>
+              <FileName>delay.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\delay.c</FilePath>
             </File>
           </Files>
         </Group>

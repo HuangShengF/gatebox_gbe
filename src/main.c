@@ -37,6 +37,7 @@
 #include "usb_lib.h"
 #include "usb_pwr.h"
 #include "log.h"
+#include "delay.h"
 
 __IO uint32_t TimingDelay     = 0;
 uint32_t system_clock = 0;
@@ -63,7 +64,7 @@ int main(void)
     //     }
     // }
     log_init();
-
+    delay_init();
     while (1)
     {
         printf("hello world\n");
