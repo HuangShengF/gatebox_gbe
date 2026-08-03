@@ -1,56 +1,59 @@
-#include "bsp_lre329.h"
+#include "bsp_ltr329.h"
 
 #include "n32l40x.h"
 #include "n32l40x_i2c.h"
-#include "main.h"
-#include "log.h"
 
-
-#define TEST_BUFFER_SIZE  100
 #define I2CT_FLAG_TIMEOUT ((uint32_t)0x1000)
 #define I2CT_LONG_TIMEOUT ((uint32_t)(10 * I2CT_FLAG_TIMEOUT))
 #define I2C_MASTER_ADDR   0x30
-#define LTR329_I2C_ADDR      0x29
+/* N32 I2C发送地址接口使用左移后的8位地址格式 */
+#define I2C_SLAVE_ADDR    ((uint8_t)(LTR329_I2C_ADDR << 1))
+
+typedef enum
+{
+   C_READY = 0,
+   C_START_BIT,
+   C_STOP_BIT
+} CommCtrl_t;
+
+typedef enum
+{
+   MASTER_BUSY = 0,
+   MASTER_MODE,
+   MASTER_TXMODE,
+   MASTER_RXMODE,
+   MASTER_SENDING,
+   MASTER_SENDED,
+   MASTER_RECVD,
+   MASTER_BYTEF
+} ErrCode_t;
 
 #ifdef NON_REENTRANT
 static uint32_t Mutex_Flag = 0;
 #endif
 
-#define I2C1_TEST
-#define I2C1_REMAP
 #define I2Cx I2C1
 #define I2Cx_SCL_PIN GPIO_PIN_6
 #define I2Cx_SDA_PIN GPIO_PIN_7
 #define GPIOx        GPIOB
 
-uint8_t tx_buf[TEST_BUFFER_SIZE] = {0};
-uint8_t rx_buf[TEST_BUFFER_SIZE] = {0};
-volatile Status test_status      = FAILED;
 static __IO uint32_t I2CTimeout;
 static CommCtrl_t Comm_Flag = C_READY;
 
-Status Buffercmp(uint8_t* pBuffer1, uint8_t* pBuffer2, uint16_t BufferLength);
-void Memset(void* s, uint8_t c, uint32_t count);
-void CommTimeOut_CallBack(ErrCode_t errcode);
+static void CommTimeOut_CallBack(ErrCode_t errcode);
 
-void Delay(uint32_t nCount)
+
+void LTR329_WriteReg(void)
 {
-   uint32_t tcnt;
-   while(nCount--)
-   {
-       tcnt = 64000 / 5;
-       while (tcnt--){;}
-   }
+    i2c_master_send((uint8_t*)&LTR329_REG_CONTR, 1);
 }
 
-void Delay_us(uint32_t nCount)
+
+void LTR329_Init(void)
 {
-   uint32_t tcnt;
-   while (nCount--)
-   {
-       tcnt = 64 / 5;
-       while (tcnt--){;}
-   }
+    i2c_master_init();
+
+    // 检查ID
 }
 
 int i2c_master_init(void)
@@ -62,7 +65,7 @@ int i2c_master_init(void)
    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOB, ENABLE);
    GPIOx->POD |= (I2Cx_SCL_PIN | I2Cx_SDA_PIN);//pull up pin
 
-   /*PB8 -- SCL; PB9 -- SDA*/
+   /*PB6 -- SCL; PB7 -- SDA*/
    GPIO_InitStruct(&i2c1_gpio);
    i2c1_gpio.Pin               = GPIO_PIN_6 | GPIO_PIN_7;
    i2c1_gpio.GPIO_Slew_Rate    = GPIO_Slew_Rate_High;
@@ -368,4 +371,22 @@ int i2c_master_recv(uint8_t* data, int len)
 #endif
 
     return 0;
+}
+
+static void CommTimeOut_CallBack(ErrCode_t errcode)
+{
+    (void)errcode;
+
+    if (I2C_GetFlag(I2C1, I2C_FLAG_MSMODE))
+    {
+        I2C_GenerateStop(I2C1, ENABLE);
+    }
+
+    I2C_ConfigAck(I2C1, ENABLE);
+    I2C_ConfigNackLocation(I2C1, I2C_NACK_POS_CURRENT);
+    Comm_Flag = C_READY;
+
+#ifdef NON_REENTRANT
+    Mutex_Flag = 0;
+#endif
 }
