@@ -1,0 +1,23 @@
+# Keil
+**/Objects/
+**/Listings/
+**/DebugConfig/
+
+*.o
+*.obj
+*.d
+*.crf
+*.axf
+*.elf
+*.map
+*.lst
+*.lnp
+*.dep
+*.htm
+*.build_log.htm
+
+*.hex
+*.bin
+
+*.uvoptx
+*.uvguix.*

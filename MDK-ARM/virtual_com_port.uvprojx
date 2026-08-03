@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>N32L40X, USE_STDPERIPH_DRIVER,USE_FULL_ASSERT=1,SYSCLK_SRC=SYSCLK_USE_HSE_PLL,SYSCLK_FREQ=48000000</Define>
               <Undefine></Undefine>
-              <IncludePath>..\inc;..\firmware\CMSIS\core;..\firmware\n32l40x_std_periph_driver\inc;..\firmware\n32l40x_usbfs_driver\inc;..\firmware\CMSIS\device</IncludePath>
+              <IncludePath>..\inc;..\firmware\CMSIS\core;..\firmware\n32l40x_std_periph_driver\inc;..\firmware\n32l40x_usbfs_driver\inc;..\firmware\CMSIS\device;..\bsp</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -612,6 +612,21 @@
               <FileName>usb_sil.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\firmware\n32l40x_usbfs_driver\src\usb_sil.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>BSP</GroupName>
+          <Files>
+            <File>
+              <FileName>bsp_ltr329.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\bsp_ltr329.c</FilePath>
+            </File>
+            <File>
+              <FileName>log.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\log.c</FilePath>
             </File>
           </Files>
         </Group>

@@ -26,80 +26,69 @@
  * ****************************************************************************/
 
 /**
- * @file main.c
- * @author Nations
+ * @file log.h
+ * @author Nations Solution Team
  * @version V1.2.2
  *
  * @copyright Copyright (c) 2022, Nations Technologies Inc. All rights reserved.
  */
-#include "n32l40x.h"
-#include "hw_config.h"
-#include "usb_lib.h"
-#include "usb_pwr.h"
-#include "log.h"
+#ifndef __LOG_H__
+#define __LOG_H__
 
-__IO uint32_t TimingDelay     = 0;
-uint32_t system_clock = 0;
-
-/** @addtogroup DAC_OneChanneloutputNoiseWave
- * @{
- */
-
-void Delay(__IO uint32_t nCount);
-
-/**
- * @brief  Main program.
- */
-int main(void)
-{
-    // system_clock = SYSCLK_VALUE_48MHz;
-
-    // if(USB_Config(system_clock) == SUCCESS)
-    // {
-    //     USB_Init();
-
-    //     while (bDeviceState != CONFIGURED)
-    //     {
-    //     }
-    // }
-    log_init();
-
-    while (1)
-    {
-        printf("hello world\n");
-        Delay(1000);
-    }
-}
-
-/**
- * @brief  delay count.
- * @param  nCount: delay count cycle.
- */
-void Delay(__IO uint32_t nCount)
-{
-    TimingDelay = nCount;
-    for (; nCount != 0; nCount--)
-        ;
-}
-
-#ifdef USE_FULL_ASSERT
-/**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
-* @param   expr: If expr is false, it calls assert_failed function which reports
- *         the name of the source file and the source line number of the call
- *         that failed. If expr is true, it returns no value.
- * @param  file: pointer to the source file name.
- * @param  line: assert_param error line source number.
- */
-void assert_failed(const uint8_t* expr, const uint8_t* file, uint32_t line)
-{
-    /* User can add his own implementation to report the file name and line number,
-       ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-
-    /* Infinite loop */
-    while (1)
-    {
-    }
-}
+#ifndef LOG_ENABLE
+#define LOG_ENABLE 1
 #endif
+
+#if LOG_ENABLE
+
+#include <stdio.h>
+
+#define LOG_NONE    0
+#define LOG_ERROR   10
+#define LOG_WARNING 20
+#define LOG_INFO    30
+#define LOG_DEBUG   40
+
+#ifndef LOG_LEVEL
+#define LOG_LEVEL LOG_DEBUG
+#endif
+
+#if LOG_LEVEL >= LOG_INFO
+#define log_info(...) printf(__VA_ARGS__)
+#else
+#define log_info(...)
+#endif
+
+#if LOG_LEVEL >= LOG_ERROR
+#define log_error(...) printf(__VA_ARGS__)
+#else
+#define log_error(...)
+#endif
+
+#if LOG_LEVEL >= LOG_WARNING
+#define log_warning(...) printf(__VA_ARGS__)
+#else
+#define log_warning(...)
+#endif
+
+#if LOG_LEVEL >= LOG_DEBUG
+#define log_debug(...) printf(__VA_ARGS__)
+#else
+#define log_debug(...)
+#endif
+
+void log_init(void);
+
+#else /* !LOG_ENABLE */
+
+#define log_info(...)
+#define log_warning(...)
+#define log_error(...)
+#define log_debug(...)
+#define log_init()
+
+#endif
+
+#define log_func() log_debug("call %s\r\n", __FUNCTION__)
+
+#endif /* __LOG_H__ */
