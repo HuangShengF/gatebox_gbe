@@ -141,6 +141,24 @@ void USBWakeUp_IRQHandler(void)
     EXTI_ClrITPendBit(EXTI_LINE17);
 }
 
+void EXTI3_IRQHandler(void)
+{
+    if (EXTI_GetITStatus(EXTI_LINE3) != RESET)
+    {
+        /* Clear the EXTI line 3 pending bit */
+        EXTI_ClrITPendBit(EXTI_LINE3);
+    }
+}
+
+void EXTI9_5_IRQHandler(void)
+{
+    if (EXTI_GetITStatus(EXTI_LINE7) != RESET)
+    {
+        /* Clear the EXTI line 7 pending bit */
+        EXTI_ClrITPendBit(EXTI_LINE7);
+    }
+}
+
 /**
  * @brief  This function handles UASRT1 global interrupt request.
  */

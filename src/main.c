@@ -38,6 +38,7 @@
 #include "usb_pwr.h"
 #include "log.h"
 #include "delay.h"
+#include "bsp_pir.h"
 
 __IO uint32_t TimingDelay     = 0;
 uint32_t system_clock = 0;
@@ -65,6 +66,7 @@ int main(void)
     // }
     log_init();
     delay_init();
+    PIR_ExtiInit();
     while (1)
     {
         printf("hello world\n");

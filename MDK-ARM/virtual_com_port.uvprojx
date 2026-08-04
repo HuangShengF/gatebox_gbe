@@ -624,6 +624,11 @@
               <FilePath>..\bsp\bsp_ltr329.c</FilePath>
             </File>
             <File>
+              <FileName>bsp_pir.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\bsp_pir.c</FilePath>
+            </File>
+            <File>
               <FileName>log.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\log.c</FilePath>

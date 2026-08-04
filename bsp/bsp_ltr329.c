@@ -189,8 +189,7 @@ uint8_t LTR329_ReadRawData(uint16_t *ch0, uint16_t *ch1)
     return LTR329_OK;
 }
 
-uint8_t LTR329_CalculateLux(uint8_t gain, uint8_t int_time,
-                            float pFactor, float *lux)
+uint8_t LTR329_CalculateLux(uint8_t gain, uint8_t int_time,float pFactor, float *lux)
 {
     uint8_t ret;
     uint8_t gain_value;
