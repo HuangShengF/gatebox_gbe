@@ -638,6 +638,11 @@
               <FileType>1</FileType>
               <FilePath>..\bsp\delay.c</FilePath>
             </File>
+            <File>
+              <FileName>bsp_ir.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\bsp_ir.c</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>

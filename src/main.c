@@ -40,7 +40,7 @@
 #include "delay.h"
 #include "bsp_pir.h"
 
-__IO uint32_t TimingDelay     = 0;
+__IO uint32_t TimingDelay = 0;
 uint32_t system_clock = 0;
 
 /** @addtogroup DAC_OneChanneloutputNoiseWave
@@ -49,9 +49,41 @@ uint32_t system_clock = 0;
 
 void Delay(__IO uint32_t nCount);
 
-/**
- * @brief  Main program.
- */
+#include "n32l40x_rcc.h"
+
+static void Clock_Print(void)
+{
+    RCC_ClocksType clocks;
+    uint32_t tim2_clock;
+
+    SystemCoreClockUpdate();
+    RCC_GetClocksFreqValue(&clocks);
+
+    /* APB1分频不为1时，TIM2时钟为PCLK1的2倍 */
+    if (clocks.Pclk1Freq == clocks.HclkFreq)
+    {
+        tim2_clock = clocks.Pclk1Freq;
+    }
+    else
+    {
+        tim2_clock = clocks.Pclk1Freq * 2;
+    }
+
+    printf("SystemCoreClock = %lu Hz\r\n",
+           (unsigned long)SystemCoreClock);
+    printf("SYSCLK          = %lu Hz\r\n",
+           (unsigned long)clocks.SysclkFreq);
+    printf("HCLK            = %lu Hz\r\n",
+           (unsigned long)clocks.HclkFreq);
+    printf("PCLK1           = %lu Hz\r\n",
+           (unsigned long)clocks.Pclk1Freq);
+    printf("PCLK2           = %lu Hz\r\n",
+           (unsigned long)clocks.Pclk2Freq);
+    printf("TIM2_CLK        = %lu Hz\r\n",
+           (unsigned long)tim2_clock);
+    printf("SYSCLK source   = 0x%02X\r\n",
+           RCC_GetSysclkSrc());
+}
 int main(void)
 {
     // system_clock = SYSCLK_VALUE_48MHz;
@@ -66,11 +98,15 @@ int main(void)
     // }
     log_init();
     delay_init();
+
+    delay_ms(20);
+    printf("\r\n");
+    Clock_Print();
     PIR_ExtiInit();
     while (1)
     {
-        printf("hello world\n");
-        Delay(1000);
+        // printf("hello world\n");
+        // Delay(1000);
     }
 }
 
@@ -89,13 +125,13 @@ void Delay(__IO uint32_t nCount)
 /**
  * @brief  Reports the name of the source file and the source line number
  *         where the assert_param error has occurred.
-* @param   expr: If expr is false, it calls assert_failed function which reports
+ * @param   expr: If expr is false, it calls assert_failed function which reports
  *         the name of the source file and the source line number of the call
  *         that failed. If expr is true, it returns no value.
  * @param  file: pointer to the source file name.
  * @param  line: assert_param error line source number.
  */
-void assert_failed(const uint8_t* expr, const uint8_t* file, uint32_t line)
+void assert_failed(const uint8_t *expr, const uint8_t *file, uint32_t line)
 {
     /* User can add his own implementation to report the file name and line number,
        ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
