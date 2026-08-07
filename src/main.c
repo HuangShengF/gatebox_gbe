@@ -103,6 +103,8 @@ int main(void)
     printf("\r\n");
     Clock_Print();
     PIR_ExtiInit();
+    IR_Init();
+    IR_Start();
     while (1)
     {
         // printf("hello world\n");
