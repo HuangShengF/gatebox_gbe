@@ -176,6 +176,12 @@ void USART1_IRQHandler(void)
         USART_ReceiveData(USART1);
     }
 }
+
+/**
+ * @brief  TIM6中断处理函数 - 红外包络定时器
+ */
+void TIM6_IRQHandler(void);
+
 /******************************************************************************/
 /*                 N32L40X Peripherals Interrupt Handlers                     */
 /*  Add here the Interrupt Handler for the used peripheral(s) (PPP), for the  */
