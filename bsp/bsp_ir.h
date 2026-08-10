@@ -31,10 +31,10 @@ typedef enum {
 /* AEHA协议时序 (us) */
 #define AEHA_START_MARK     3400
 #define AEHA_START_SPACE    1700
-#define AEHA_BIT_MARK       420
-#define AEHA_BIT1_SPACE     1300
-#define AEHA_BIT0_SPACE     420
-#define AEHA_STOP_MARK      420
+#define AEHA_BIT_MARK       425
+#define AEHA_BIT1_SPACE     1275
+#define AEHA_BIT0_SPACE     425
+#define AEHA_STOP_MARK      425
 
 /* Sony协议时序 (us) */
 #define SONY_START_MARK     2400
@@ -45,6 +45,6 @@ typedef enum {
 void IR_Init(void);
 void IR_Start(void);
 void IR_Stop(void);
-void IR_SendData(IR_Protocol_t protocol, uint32_t data, uint8_t bits);
+void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits);
 
 #endif

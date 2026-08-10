@@ -39,7 +39,8 @@
 #include "log.h"
 #include "delay.h"
 #include "bsp_pir.h"
-
+#include "bsp_ir.h"
+#include "bsp_ir_example.h"
 __IO uint32_t TimingDelay = 0;
 uint32_t system_clock = 0;
 
@@ -86,16 +87,16 @@ static void Clock_Print(void)
 }
 int main(void)
 {
-    // system_clock = SYSCLK_VALUE_48MHz;
+    system_clock = SYSCLK_VALUE_48MHz;
 
-    // if(USB_Config(system_clock) == SUCCESS)
-    // {
-    //     USB_Init();
+    if(USB_Config(system_clock) == SUCCESS)
+    {
+        USB_Init();
 
-    //     while (bDeviceState != CONFIGURED)
-    //     {
-    //     }
-    // }
+        while (bDeviceState != CONFIGURED)
+        {
+        }
+    }
     log_init();
     delay_init();
 
@@ -104,11 +105,15 @@ int main(void)
     Clock_Print();
     PIR_ExtiInit();
     IR_Init();
-    IR_Start();
+    //IR_Start();
+        // 初始化红外模块
+    IR_Init();
     while (1)
     {
-        // printf("hello world\n");
-        // Delay(1000);
+        printf("hello world\n");
+        IR_Example();
+        delay_xms(2000);
+
     }
 }
 

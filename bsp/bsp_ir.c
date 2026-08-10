@@ -1,16 +1,23 @@
 #include "bsp_ir.h"
-
+#include <stddef.h>
 /* 红外发送控制结构 */
 typedef struct {
     IR_Protocol_t protocol;
     IR_State_t state;
-    uint32_t data;
-    uint8_t bit_count;
-    uint8_t current_bit;
+    const uint8_t *data;      // 字节数组指针
+    uint16_t bit_count;       // 总位数
+    uint16_t current_bit;     // 当前位索引
     uint8_t is_sending;
 } IR_Control_t;
 
-static IR_Control_t ir_ctrl = {0};
+static IR_Control_t ir_ctrl = {
+    .protocol = IR_PROTOCOL_NEC,
+    .state = IR_STATE_IDLE,
+    .data = NULL,
+    .bit_count = 0,
+    .current_bit = 0,
+    .is_sending = 0
+};
 
 /* 微秒转定时器计数值 (TIM6: 24MHz / 24 = 1MHz, 1us per tick) */
 #define US_TO_TICKS(us) (us)
@@ -30,6 +37,7 @@ void IR_PWM_Init(void)
     GPIO_InitStructure.GPIO_Mode      = GPIO_Mode_AF_PP;
     GPIO_InitStructure.GPIO_Current   = GPIO_DC_4mA;
     GPIO_InitStructure.GPIO_Alternate = GPIO_AF2_TIM2;
+    GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
     GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
 
     /*
@@ -99,14 +107,17 @@ void IR_Init(void)
 
 void IR_Start(void)
 {
-    TIM_ConfigOc3Mode(TIM2, TIM_OCMODE_PWM1);
+    // 设置CCR为1/3占空比，PWM输出载波
+    TIM2->CCDAT3 = TIM2->AR / 3;
+    // 使能CH3输出
     TIM_EnableCapCmpCh(TIM2, TIM_CH_3, TIM_CAP_CMP_ENABLE);
 }
 
 void IR_Stop(void)
 {
-    // 强制输出低电平
-    TIM_ConfigOc3Mode(TIM2, TIM_OCMODE_INACTIVE);
+    // CCR=0，PWM输出恒低电平
+    TIM2->CCDAT3 = 0;
+    // 关闭CH3输出
     TIM_EnableCapCmpCh(TIM2, TIM_CH_3, TIM_CAP_CMP_DISABLE);
 }
 
@@ -121,7 +132,7 @@ static void IR_SetTimerPeriod(uint16_t period_us)
 }
 
 /* 发送红外数据 */
-void IR_SendData(IR_Protocol_t protocol, uint32_t data, uint8_t bits)
+void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
 {
     if (ir_ctrl.is_sending) {
         return; // 正在发送中
@@ -133,6 +144,17 @@ void IR_SendData(IR_Protocol_t protocol, uint32_t data, uint8_t bits)
     ir_ctrl.current_bit = 0;
     ir_ctrl.state = IR_STATE_START_MARK;
     ir_ctrl.is_sending = 1;
+
+    // 问题4修复：根据协议切换载波频率
+    if (protocol == IR_PROTOCOL_SONY) {
+        // Sony: 40kHz, 24MHz / 600 = 40kHz
+        TIM2->AR = 599;
+        TIM2->CCDAT3 = 200;  // 1/3 占空比
+    } else {
+        // NEC/AEHA: 38kHz, 24MHz / 632 = 37.97kHz
+        TIM2->AR = 631;
+        TIM2->CCDAT3 = 211;
+    }
 
     uint16_t start_mark_time = 0;
     switch (protocol) {
@@ -156,6 +178,8 @@ void IR_SendData(IR_Protocol_t protocol, uint32_t data, uint8_t bits)
 /* TIM6中断处理 - 状态机 */
 void TIM6_IRQHandler(void)
 {
+    uint16_t space_time, mark_time;  // 变量声明提到switch外
+
     if (TIM_GetIntStatus(TIM6, TIM_INT_UPDATE) != RESET)
     {
         // 清除中断标志
@@ -168,24 +192,22 @@ void TIM6_IRQHandler(void)
                 IR_Stop();
                 ir_ctrl.state = IR_STATE_START_SPACE;
 
+                // 问题3修复：所有协议都要发起始Space
                 if (ir_ctrl.protocol == IR_PROTOCOL_SONY) {
-                    // Sony协议没有起始Space，直接进入数据位
-                    ir_ctrl.state = IR_STATE_DATA_MARK;
-                    uint8_t bit = (ir_ctrl.data >> (ir_ctrl.bit_count - 1 - ir_ctrl.current_bit)) & 0x01;
-                    IR_SetTimerPeriod(bit ? SONY_BIT1_MARK : SONY_BIT0_MARK);
-                    IR_Start();
+                    space_time = SONY_BIT_SPACE;  // Sony: 600µs
+                } else if (ir_ctrl.protocol == IR_PROTOCOL_NEC) {
+                    space_time = NEC_START_SPACE;
                 } else {
-                    uint16_t space_time = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ?
-                                          NEC_START_SPACE : AEHA_START_SPACE;
-                    IR_SetTimerPeriod(space_time);
+                    space_time = AEHA_START_SPACE;
                 }
+                IR_SetTimerPeriod(space_time);
                 break;
 
             case IR_STATE_START_SPACE:
                 // 起始码Space结束，进入数据位Mark
                 ir_ctrl.state = IR_STATE_DATA_MARK;
 
-                uint16_t mark_time = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ?
+                mark_time = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ?
                                       NEC_BIT_MARK : AEHA_BIT_MARK;
                 IR_SetTimerPeriod(mark_time);
                 IR_Start();
@@ -201,7 +223,10 @@ void TIM6_IRQHandler(void)
                     IR_SetTimerPeriod(SONY_BIT_SPACE);
                 } else {
                     // NEC/AEHA协议的Space部分
-                    uint8_t bit = (ir_ctrl.data >> (ir_ctrl.bit_count - 1 - ir_ctrl.current_bit)) & 0x01;
+                    // 问题2修复：LSB first
+                    uint8_t byte_idx = ir_ctrl.current_bit / 8;
+                    uint8_t bit_idx = ir_ctrl.current_bit & 7;
+                    uint8_t bit = (ir_ctrl.data[byte_idx] >> bit_idx) & 0x01;
                     ir_ctrl.state = IR_STATE_DATA_SPACE;
 
                     uint16_t space_time;
@@ -242,7 +267,10 @@ void TIM6_IRQHandler(void)
                     ir_ctrl.state = IR_STATE_DATA_MARK;
 
                     if (ir_ctrl.protocol == IR_PROTOCOL_SONY) {
-                        uint8_t bit = (ir_ctrl.data >> (ir_ctrl.bit_count - 1 - ir_ctrl.current_bit)) & 0x01;
+                        // 问题2修复：LSB first
+                        uint8_t byte_idx = ir_ctrl.current_bit / 8;
+                        uint8_t bit_idx = ir_ctrl.current_bit & 7;
+                        uint8_t bit = (ir_ctrl.data[byte_idx] >> bit_idx) & 0x01;
                         IR_SetTimerPeriod(bit ? SONY_BIT1_MARK : SONY_BIT0_MARK);
                     } else {
                         uint16_t mark_time = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ?

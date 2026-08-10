@@ -643,6 +643,11 @@
               <FileType>1</FileType>
               <FilePath>..\bsp\bsp_ir.c</FilePath>
             </File>
+            <File>
+              <FileName>bsp_ir_example.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\bsp_ir_example.c</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>
