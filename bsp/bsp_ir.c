@@ -192,7 +192,6 @@ void TIM6_IRQHandler(void)
                 IR_Stop();
                 ir_ctrl.state = IR_STATE_START_SPACE;
 
-                // 问题3修复：所有协议都要发起始Space
                 if (ir_ctrl.protocol == IR_PROTOCOL_SONY) {
                     space_time = SONY_BIT_SPACE;  // Sony: 600µs
                 } else if (ir_ctrl.protocol == IR_PROTOCOL_NEC) {
@@ -206,9 +205,20 @@ void TIM6_IRQHandler(void)
             case IR_STATE_START_SPACE:
                 // 起始码Space结束，进入数据位Mark
                 ir_ctrl.state = IR_STATE_DATA_MARK;
+                
+                // sony跟1和0区别在于PWM持续时间；NEC和AEHA是space空闲低电平的时间区别1和0
+                if(ir_ctrl.protocol == IR_PROTOCOL_SONY)
+                {
+                    uint8_t byte_idx = ir_ctrl.current_bit / 8;
+                    uint8_t bit_idx = ir_ctrl.current_bit & 7;
+                    uint8_t bit = (ir_ctrl.data[byte_idx] >> bit_idx) & 0x01;
+                    mark_time = (bit == 0) ? SONY_BIT0_MARK : SONY_BIT1_MARK;
+                }
+                else
+                {
+                    mark_time = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ? NEC_BIT_MARK : AEHA_BIT_MARK;
+                }
 
-                mark_time = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ?
-                                      NEC_BIT_MARK : AEHA_BIT_MARK;
                 IR_SetTimerPeriod(mark_time);
                 IR_Start();
                 break;
@@ -223,7 +233,6 @@ void TIM6_IRQHandler(void)
                     IR_SetTimerPeriod(SONY_BIT_SPACE);
                 } else {
                     // NEC/AEHA协议的Space部分
-                    // 问题2修复：LSB first
                     uint8_t byte_idx = ir_ctrl.current_bit / 8;
                     uint8_t bit_idx = ir_ctrl.current_bit & 7;
                     uint8_t bit = (ir_ctrl.data[byte_idx] >> bit_idx) & 0x01;
@@ -242,7 +251,6 @@ void TIM6_IRQHandler(void)
             case IR_STATE_DATA_SPACE:
                 // 数据位Space结束
                 ir_ctrl.current_bit++;
-
                 if (ir_ctrl.current_bit >= ir_ctrl.bit_count) {
                     // 所有位发送完成，发送停止位
                     ir_ctrl.state = IR_STATE_STOP;
