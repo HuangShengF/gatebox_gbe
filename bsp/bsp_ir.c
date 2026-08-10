@@ -66,6 +66,58 @@ void IR_PWM_Init(void)
     TIM_Enable(TIM2, ENABLE);
 }
 
+void IR_Capture_Init(void)
+{
+    TIM_ICInitType TIM_ICInitStructure;
+    GPIO_InitType GPIO_InitStructure;
+    TIM_TimeBaseInitType TIM_TimeBaseStructure;
+
+    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA | RCC_APB2_PERIPH_AFIO, ENABLE);
+    RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_TIM5, ENABLE);
+
+    GPIO_InitStruct(&GPIO_InitStructure);
+    GPIO_InitStructure.Pin            = GPIO_PIN_0;
+    GPIO_InitStructure.GPIO_Mode      = GPIO_Mode_Input;
+    GPIO_InitStructure.GPIO_Current   = GPIO_DC_4mA;
+    GPIO_InitStructure.GPIO_Alternate = GPIO_AF1_TIM5;
+    GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
+    GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
+
+    TIM_InitTimBaseStruct(&TIM_TimeBaseStructure);
+    TIM_TimeBaseStructure.Prescaler = 23; // 24MHz / (23+1) = 1MHz, 1us per tick
+    TIM_TimeBaseStructure.Period    = 0xFFFF;
+    TIM_TimeBaseStructure.ClkDiv    = 0;
+    TIM_TimeBaseStructure.CntMode   = TIM_CNT_MODE_UP;
+    TIM_InitTimeBase(TIM5, &TIM_TimeBaseStructure);
+
+    TIM_InitIcStruct(&TIM_ICInitStructure);
+    TIM_ICInitStructure.Channel     = TIM_CH_1;
+    TIM_ICInitStructure.IcPolarity  = TIM_IC_POLARITY_FALLING;
+    TIM_ICInitStructure.IcSelection = TIM_IC_SELECTION_DIRECTTI;
+    TIM_ICInitStructure.IcPrescaler = TIM_IC_PSC_DIV1;
+    TIM_ICInitStructure.IcFilter    = 0x0;
+    TIM_ICInit(TIM5, &TIM_ICInitStructure);
+
+    TIM_ICInitStructure.Channel     = TIM_CH_2;
+    TIM_ICInitStructure.IcPolarity  = TIM_IC_POLARITY_RISING;
+    TIM_ICInit(TIM5, &TIM_ICInitStructure);
+    TIM_SetCnt(TIM5, 0); // 设置计数器初值为0
+        /* 前面的初始化和立即装载可能已经置位更新标志 */
+    TIM_ClrIntPendingBit(TIM5, TIM_INT_CC1 | TIM_INT_CC2);
+
+    NVIC_InitStructure.NVIC_IRQChannel                   = TIM5_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0;
+    NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
+    NVIC_Init(&NVIC_InitStructure);
+
+    /* Enable the CC1 Interrupt Request */
+    TIM_ConfigInt(TIM5, TIM_INT_CC1 | TIM_INT_CC2, ENABLE);
+    
+    /* 计数器运行 */
+    TIM_Enable(TIM5, ENABLE);
+}
+
 void IR_TIM6_Init(void)
 {
     TIM_TimeBaseInitType TIM_TimeBaseStructure;
@@ -174,6 +226,28 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
     // 开始发送起始码的Mark部分
     IR_Start();
 }
+
+void TIM5_IRQHandler(void)
+{
+    if (TIM_GetIntStatus(TIM5, TIM_INT_CC1) != RESET)
+    {
+        uint16_t capture = TIM_GetCap1(TIM5);
+
+        TIM_ClrIntPendingBit(TIM5, TIM_INT_CC1);
+        
+        /* 下降沿：mark开始 */
+    }
+
+    if (TIM_GetIntStatus(TIM5, TIM_INT_CC2) != RESET)
+    {
+        uint16_t capture = TIM_GetCap2(TIM5);
+
+        TIM_ClrIntPendingBit(TIM5, TIM_INT_CC2);
+
+        /* 上升沿：mark结束、space开始 */
+    }
+}
+
 
 /* TIM6中断处理 - 状态机 */
 void TIM6_IRQHandler(void)
