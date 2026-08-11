@@ -19,6 +19,28 @@ static IR_Control_t ir_ctrl = {
     .is_sending = 0
 };
 
+typedef struct 
+{
+    uint16_t mark;
+    uint16_t space;
+}IR_data_t;
+
+typedef struct 
+{
+    IR_data_t *data;
+    uint16_t count;
+    IR_Protocol_t protocol;
+}IR_RxFrame_t;;
+
+#define IR_MAX_EDGES 200
+static IR_data_t ir_buffer[IR_MAX_EDGES];  // 静态分配
+
+IR_RxFrame_t ir_cap = {
+    .data = ir_buffer,
+    .count = 0
+};
+
+
 /* 微秒转定时器计数值 (TIM6: 24MHz / 24 = 1MHz, 1us per tick) */
 #define US_TO_TICKS(us) (us)
 
@@ -64,6 +86,64 @@ void IR_PWM_Init(void)
 
     /* 计数器运行，但CH3输出暂时关闭 */
     TIM_Enable(TIM2, ENABLE);
+}
+
+void IR_Capture_Init(void)
+{
+    GPIO_InitType GPIO_InitStructure;
+    TIM_TimeBaseInitType TIM_TimeBaseStructure;
+    TIM_ICInitType TIM_ICInitStructure;
+    NVIC_InitType NVIC_InitStructure;
+    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA | RCC_APB2_PERIPH_AFIO, ENABLE);
+
+    RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_TIM5, ENABLE);
+
+    GPIO_InitStruct(&GPIO_InitStructure);
+    GPIO_InitStructure.Pin            = GPIO_PIN_0;
+    GPIO_InitStructure.GPIO_Mode      = GPIO_Mode_Input;
+    GPIO_InitStructure.GPIO_Current   = GPIO_DC_4mA;
+    GPIO_InitStructure.GPIO_Alternate = GPIO_AF1_TIM5;
+    GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
+    GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
+
+    /*
+     * TIM2_CLK = 24MHz
+     * 24MHz / (631 + 1) = 37.975kHz
+     */
+    TIM_InitTimBaseStruct(&TIM_TimeBaseStructure);
+    TIM_TimeBaseStructure.Prescaler = 23; // 1个数是1us
+    TIM_TimeBaseStructure.Period    = 0xFFFF;
+    TIM_TimeBaseStructure.ClkDiv    = 0;
+    TIM_TimeBaseStructure.CntMode   = TIM_CNT_MODE_UP;
+    TIM_InitTimeBase(TIM5, &TIM_TimeBaseStructure);
+    TIM_SetCnt(TIM5, 0);
+
+    TIM_InitIcStruct(&TIM_ICInitStructure);
+    TIM_ICInitStructure.Channel     = TIM_CH_2;
+    TIM_ICInitStructure.IcPolarity  = TIM_IC_POLARITY_RISING;
+    TIM_ICInitStructure.IcSelection = TIM_IC_SELECTION_INDIRECTTI;
+    TIM_ICInitStructure.IcPrescaler = TIM_IC_PSC_DIV1;
+    TIM_ICInitStructure.IcFilter    = 0x0;
+    TIM_ICInit(TIM5, &TIM_ICInitStructure);
+
+    TIM_ICInitStructure.Channel     = TIM_CH_1;
+    TIM_ICInitStructure.IcPolarity  = TIM_IC_POLARITY_FALLING;
+    TIM_ICInitStructure.IcSelection = TIM_IC_SELECTION_DIRECTTI;
+    TIM_ICInit(TIM5, &TIM_ICInitStructure);
+
+    NVIC_InitStructure.NVIC_IRQChannel                   = TIM5_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0;
+    NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
+    NVIC_Init(&NVIC_InitStructure);
+
+    /* Enable the CC2 Interrupt Request */
+    TIM_ConfigInt(TIM5, TIM_INT_CC2 | TIM_INT_CC1, ENABLE);
+    /* 前面的初始化和立即装载可能已经置位更新标志 */
+    TIM_ClrIntPendingBit(TIM5, TIM_INT_UPDATE | TIM_INT_CC1 | TIM_INT_CC2);
+
+    /* TIM enable counter */
+    TIM_Enable(TIM5, ENABLE);
 }
 
 void IR_TIM6_Init(void)
@@ -173,6 +253,40 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
     IR_SetTimerPeriod(start_mark_time);
     // 开始发送起始码的Mark部分
     IR_Start();
+}
+
+// 输入捕获中断
+void TIM5_IRQHandler(void)
+{
+    static uint16_t capture_value1 = 0, capture_value2 = 0;
+    static uint8_t started = 0;
+    if(TIM_GetIntStatus(TIM5, TIM_INT_CC1) != RESET)
+    {
+        // 下降沿
+        TIM_ClrIntPendingBit(TIM5, TIM_INT_CC1);
+        capture_value1 = TIM_GetCap1(TIM5);
+        if(!started)
+        {
+            started = 1;
+            return;
+        }
+        ir_cap.data[ir_cap.count].space = (capture_value1 - capture_value2 > 0) ? capture_value1 - capture_value2 : 
+                                                    65535 - capture_value2 + capture_value1;
+        if (ir_cap.count < IR_MAX_EDGES - 1) 
+        {
+            ir_cap.count++;
+        }
+
+    }
+    if(TIM_GetIntStatus(TIM5, TIM_INT_CC2) != RESET)
+    {   
+        // 上升沿
+        TIM_ClrIntPendingBit(TIM5, TIM_INT_CC2);
+        capture_value2 = TIM_GetCap2(TIM5);
+        ir_cap.data[ir_cap.count].mark = (capture_value2 - capture_value1 > 0) ? capture_value2 - capture_value1 : 
+                                                        65535 - capture_value1 + capture_value2;
+    }
+
 }
 
 /* TIM6中断处理 - 状态机 */
