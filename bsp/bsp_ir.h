@@ -21,6 +21,20 @@ typedef enum {
     IR_STATE_STOP
 } IR_State_t;
 
+/* 解码结果错误码 */
+typedef enum
+{
+    IR_DECODE_OK = 0,            /* 解码成功 */
+    IR_DECODE_ERR_TOO_SHORT,     /* 段对数太少(不够一帧) */
+    IR_DECODE_ERR_UNKNOWN_PROTO, /* 引导码识别不出协议 */
+    IR_DECODE_ERR_NEC_LEN,       /* NEC 数据不足 33 对 */
+    IR_DECODE_ERR_AEHA_LEN,      /* AEHA 位数 < 48 */
+    IR_DECODE_ERR_SONY_LEN,      /* Sony 位数不是 12/15/20 */
+} IR_DecodeErr_t;
+
+
+
+
 /* NEC协议时序 (us) */
 #define NEC_START_MARK      9000
 #define NEC_START_SPACE     4500

@@ -46,8 +46,8 @@ IR_Decoded_t ir_decoded = {
     .data = {0}};
 
 // 用于判断最短帧
-#define IR_MIN_PAIRS 13
-#define IR_MAX_EDGES 200
+#define IR_MIN_PAIRS 12
+#define IR_MAX_EDGES 400
 static IR_data_t ir_buffer[IR_MAX_EDGES]; // 静态分配
 
 IR_RxFrame_t ir_cap = {
@@ -273,43 +273,120 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
     IR_Start();
 }
 
-void IR_DecodeFrame(void)
+/* 误差是否落在 center±25% 内 */
+static uint8_t IR_IsNear(uint16_t val, uint16_t center)
 {
-    IR_data_t decode_buffer[200] = {0};
-
+    return (val >= (uint32_t)center * 3 / 4) && (val <= (uint32_t)center * 5 / 4);
+}
+IR_DecodeErr_t IR_DecodeFrame(void)
+{
+    static IR_data_t decode_buffer[400] = {0};
+    uint16_t nbits = 0;
     // 把数据拷贝到临时存起来，防止被覆盖
     NVIC_DisableIRQ(TIM5_IRQn);
-    uint8_t count = ir_cap.count;
-    for (uint8_t i = 0; i < count; i++)
+    uint16_t count = ir_cap.count;
+    for (uint16_t i = 0; i < count; i++)
     {
         decode_buffer[i] = ir_cap.data[i];
     }
     NVIC_EnableIRQ(TIM5_IRQn);
+
+    if (count < IR_MIN_PAIRS)
+    {
+        return IR_DECODE_ERR_TOO_SHORT; // 数据不够，最低是 sony的12bit
+    }
+
     // 把接受到的数据解码
-    if (decode_buffer[0].mark > 7500 && decode_buffer[0].space < 11000)
+    /* ---- 1. 识别协议: mark 和 space 都要落在窗口内 ---- */
+    if (IR_IsNear(decode_buffer[0].mark, NEC_START_MARK) &&
+        IR_IsNear(decode_buffer[0].space, NEC_START_SPACE))
     {
         ir_decoded.protocol = IR_PROTOCOL_NEC;
     }
-    else if (decode_buffer[0].mark > 5000 && decode_buffer[0].space < 7000)
+    else if (IR_IsNear(decode_buffer[0].mark, AEHA_START_MARK) &&
+             IR_IsNear(decode_buffer[0].space, AEHA_START_SPACE))
     {
         ir_decoded.protocol = IR_PROTOCOL_AEHA;
     }
-    else if (decode_buffer[0].mark > 5000 && decode_buffer[0].space < 9000)
+    else if (IR_IsNear(decode_buffer[0].mark, SONY_START_MARK) &&
+             IR_IsNear(decode_buffer[0].space, SONY_BIT_SPACE))
     {
         ir_decoded.protocol = IR_PROTOCOL_SONY;
+    }
+    else
+    {
+        return IR_DECODE_ERR_UNKNOWN_PROTO; /* 识别失败, 直接丢弃 */
     }
 
     switch (ir_decoded.protocol)
     {
-    case IR_PROTOCOL_NEC:
-        break;
+        case IR_PROTOCOL_NEC:
+        {
+            if (count < 33)
+            {
+                return IR_DECODE_ERR_NEC_LEN;
+            }
+            nbits = 32;
+            for (uint16_t i = 0; i < nbits; i++)
+            {
+                /* space 1690=1 / 560=0, 阈值 1100 */
+                // 这个数组里面存的是字节
+                ir_decoded.data[i / 8] |=
+                    (uint8_t)((decode_buffer[1 + i].space > 1100) ? 1 : 0) << (i % 8);
+            }
+            break;
+        }
 
-    case IR_PROTOCOL_AEHA:
-        break;
+        case IR_PROTOCOL_AEHA:
+        {
+            uint16_t end = count; /* 无重发: 停止位是最后一个 mark */
+            for (uint16_t i = 1; i < count; i++)
+            {
+                if (decode_buffer[i].space >= 4000)
+                {
+                    end = i;
+                    break;
+                }
+            }
+            nbits = end - 1;
+            if (nbits < 48)
+                return IR_DECODE_ERR_AEHA_LEN; /* AEHA 最短 48 位 */
+            for (uint16_t i = 0; i < nbits; i++)
+            {
+                /* space 1275=1 / 425=0, 阈值 850 */
+                ir_decoded.data[i / 8] |=
+                    (uint8_t)((decode_buffer[1 + i].space > 850) ? 1 : 0) << (i % 8);
+            }
+            break;
+        }
 
-    case IR_PROTOCOL_SONY:
-        break;
+
+        case IR_PROTOCOL_SONY:
+        {
+            /* Sony 无停止位: 单发时最后一位 mark 在 data[count], 位数 = count;
+            * 重发时最后一位 space 被帧间隙撑大(≥5ms), 用它定位 */
+            nbits = count;
+            for (uint16_t i = 1; i < count; i++)
+            {
+                if (decode_buffer[i].space >= 5000)
+                {
+                    nbits = i;
+                    break;
+                }
+            }
+            if (nbits != 12 && nbits != 15 && nbits != 20)
+                return IR_DECODE_ERR_SONY_LEN;
+            for (uint16_t i = 0; i < nbits; i++)
+            {
+                /* mark 1200=1 / 600=0 */
+                ir_decoded.data[i / 8] |=
+                    (uint8_t)((decode_buffer[1 + i].mark >= 900) ? 1 : 0) << (i % 8);
+            }
+            break;
+        }
+
     }
+    return IR_DECODE_OK;
 }
 
 // 输入捕获中断
