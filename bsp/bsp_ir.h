@@ -5,6 +5,7 @@
 
 /* 红外协议类型 */
 typedef enum {
+    IR_PROTOCOL_UNKNOWN = -1,
     IR_PROTOCOL_NEC = 0,
     IR_PROTOCOL_AEHA,
     IR_PROTOCOL_SONY
