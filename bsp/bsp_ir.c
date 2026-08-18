@@ -1,5 +1,6 @@
 #include "bsp_ir.h"
 #include <stddef.h>
+#include <string.h>
 /* 红外发送控制结构 */
 typedef struct
 {
@@ -29,10 +30,10 @@ typedef struct
 {
     IR_data_t *data;
     uint16_t count;
+    uint16_t complete_count; /* 帧结束时的对数, 主循环解码用 */
     IR_Protocol_t protocol;
     volatile bool capture_complete;
 } IR_RxFrame_t;
-;
 
 typedef struct
 {
@@ -53,6 +54,7 @@ static IR_data_t ir_buffer[IR_MAX_EDGES]; // 静态分配
 IR_RxFrame_t ir_cap = {
     .data = ir_buffer,
     .count = 0,
+    .complete_count = 0,
     .protocol = IR_PROTOCOL_UNKNOWN,
     .capture_complete = false};
 
@@ -284,7 +286,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
     uint16_t nbits = 0;
     // 把数据拷贝到临时存起来，防止被覆盖
     NVIC_DisableIRQ(TIM5_IRQn);
-    uint16_t count = ir_cap.count;
+    uint16_t count = ir_cap.complete_count;   /* ISR 清零 count 前存下的帧长 */
     for (uint16_t i = 0; i < count; i++)
     {
         decode_buffer[i] = ir_cap.data[i];
@@ -386,8 +388,51 @@ IR_DecodeErr_t IR_DecodeFrame(void)
         }
 
     }
+    ir_decoded.bit_count = nbits;
     return IR_DECODE_OK;
 }
+
+/* 主循环轮询: 学到一帧就打印 */
+void IR_Poll(void)
+{
+    IR_DecodeErr_t err;
+
+    if (!ir_cap.capture_complete) return;
+    ir_cap.capture_complete = false;
+    if (ir_ctrl.is_sending) return;      /* 自己发射的回声不学习 */
+
+    err = IR_DecodeFrame();
+    // IR_Poll 里, err 打印下面加:
+    printf("  count=%u:", ir_cap.complete_count);
+    for (uint16_t i = 0; i < ir_cap.complete_count; i++) {
+        printf(" %u/%u", ir_cap.data[i].mark, ir_cap.data[i].space);
+    }
+    printf("\r\n");
+
+    if (err != IR_DECODE_OK)
+    {
+        printf("IR decode err=%d\r\n", err);
+        /* 临时调试: 看原始引导码 */
+        printf("  raw[0] mark=%u space=%u count=%u\r\n",
+               ir_cap.data[0].mark, ir_cap.data[0].space, ir_cap.complete_count);
+        return;
+    }
+
+    printf("IR proto=%d bits=%d data:", ir_decoded.protocol, ir_decoded.bit_count);
+    for (uint16_t i = 0; i < (ir_decoded.bit_count + 7) / 8; i++)
+    {
+        printf(" %02X", ir_decoded.data[i]);
+    }
+    printf("\r\n");
+
+    memset(ir_decoded.data, 0, sizeof(ir_decoded.data));
+    ir_decoded.bit_count = 0;
+    // for(uint16_t i = 0; i < (ir_decoded.bit_count + 7) / 8; i++)
+    // {
+    //     ir_decoded.data[i] = 0;
+    // }
+}
+
 
 // 输入捕获中断
 void TIM5_IRQHandler(void)
@@ -400,6 +445,7 @@ void TIM5_IRQHandler(void)
         TIM_ClrIntPendingBit(TIM5, TIM_INT_UPDATE);
         if (started && ir_cap.count >= IR_MIN_PAIRS)
         {
+            ir_cap.complete_count = ir_cap.count;  /* 先把帧长存下来再清零 */
             ir_cap.capture_complete = true;
         }
         started = 0;

@@ -110,10 +110,11 @@ int main(void)
     IR_Init();
     while (1)
     {
-        printf("hello world\n");
-        IR_Example();
-        delay_xms(2000);
-
+        // printf("hello world\n");
+        // IR_Example();
+        // delay_xms(2000);
+        IR_Poll();
+        delay_ms(10);
     }
 }
 

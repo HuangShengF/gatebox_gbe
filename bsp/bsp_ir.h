@@ -61,5 +61,5 @@ void IR_Init(void);
 void IR_Start(void);
 void IR_Stop(void);
 void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits);
-
+void IR_Poll(void);
 #endif
