@@ -283,11 +283,14 @@ static uint8_t IR_IsNear(uint16_t val, uint16_t center)
 IR_DecodeErr_t IR_DecodeFrame(void)
 {
     static IR_data_t decode_buffer[400] = {0};
+    memset(decode_buffer, 0, sizeof(decode_buffer));
+
     uint16_t nbits = 0;
     // 把数据拷贝到临时存起来，防止被覆盖
     NVIC_DisableIRQ(TIM5_IRQn);
     uint16_t count = ir_cap.complete_count;   /* ISR 清零 count 前存下的帧长 */
-    for (uint16_t i = 0; i < count; i++)
+    /* 快照: 多拷一个元素 —— Sony 单发时最后一位的 mark 存在 data[count] */
+    for (uint16_t i = 0; i <= count && i < IR_MAX_EDGES; i++)
     {
         decode_buffer[i] = ir_cap.data[i];
     }
@@ -408,6 +411,9 @@ void IR_Poll(void)
         printf(" %u/%u", ir_cap.data[i].mark, ir_cap.data[i].space);
     }
     printf("\r\n");
+    printf("  last pair [%u]: mark=%u space=%u\r\n", ir_cap.complete_count,
+           ir_cap.data[ir_cap.complete_count].mark,
+           ir_cap.data[ir_cap.complete_count].space);
 
     if (err != IR_DECODE_OK)
     {
@@ -424,6 +430,11 @@ void IR_Poll(void)
         printf(" %02X", ir_decoded.data[i]);
     }
     printf("\r\n");
+
+    /* 调试: Sony 单发时显示最后一位的 mark */
+    if (ir_decoded.protocol == IR_PROTOCOL_SONY) {
+        printf("  tail mark=%u\r\n", ir_cap.data[ir_cap.complete_count].mark);
+    }
 
     memset(ir_decoded.data, 0, sizeof(ir_decoded.data));
     ir_decoded.bit_count = 0;
