@@ -55,7 +55,7 @@ IR_RxFrame_t ir_cap = {
     .data = ir_buffer,
     .count = 0,
     .complete_count = 0,
-    .protocol = IR_PROTOCOL_UNKNOWN,
+    .protocol = IR_PROTOCOL_ERROR,
     .capture_complete = false};
 
 /* 微秒转定时器计数值 (TIM6: 24MHz / 24 = 1MHz, 1us per tick) */
@@ -306,7 +306,24 @@ IR_DecodeErr_t IR_DecodeFrame(void)
     if (IR_IsNear(decode_buffer[0].mark, NEC_START_MARK) &&
         IR_IsNear(decode_buffer[0].space, NEC_START_SPACE))
     {
-        ir_decoded.protocol = IR_PROTOCOL_NEC;
+        // 标准单帧NEC
+        if(count == 33)
+        {
+            ir_decoded.protocol = IR_PROTOCOL_NEC;
+        }
+        else if(count > 33)
+        {
+            // 如果不是单帧NEC，则判断是否重复帧NEC
+            if((IR_IsNear(decode_buffer[34].mark, 9000)) && (IR_IsNear(decode_buffer[34].space, 2500)))
+            {
+                ir_decoded.protocol = IR_PROTOCOL_NEC;
+            }
+            else
+            {
+                ir_decoded.protocol = IR_PROTOCOL_UNKNOWN;
+            }
+        }
+        
     }
     else if (IR_IsNear(decode_buffer[0].mark, AEHA_START_MARK) &&
              IR_IsNear(decode_buffer[0].space, AEHA_START_SPACE))
@@ -320,7 +337,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
     }
     else
     {
-        return IR_DECODE_ERR_UNKNOWN_PROTO; /* 识别失败, 直接丢弃 */
+       ir_decoded.protocol = IR_PROTOCOL_UNKNOWN;
     }
 
     switch (ir_decoded.protocol)
@@ -390,6 +407,11 @@ IR_DecodeErr_t IR_DecodeFrame(void)
             break;
         }
 
+        case IR_PROTOCOL_UNKNOWN:
+        {
+            
+        }
+
     }
     ir_decoded.bit_count = nbits;
     return IR_DECODE_OK;
@@ -412,8 +434,8 @@ void IR_Poll(void)
     }
     printf("\r\n");
     printf("  last pair [%u]: mark=%u space=%u\r\n", ir_cap.complete_count,
-           ir_cap.data[ir_cap.complete_count].mark,
-           ir_cap.data[ir_cap.complete_count].space);
+           ir_cap.data[ir_cap.complete_count - 1].mark,
+           ir_cap.data[ir_cap.complete_count - 1].space);
 
     if (err != IR_DECODE_OK)
     {
@@ -449,18 +471,24 @@ void IR_Poll(void)
 void TIM5_IRQHandler(void)
 {
     static uint8_t started = 0;
+    static uint8_t timeout_cnt = 0;  // 超时计数器
 
     if (TIM_GetIntStatus(TIM5, TIM_INT_UPDATE) != RESET)
     {
-        // 更新中断
+        // 更新中断 (65ms溢出)
         TIM_ClrIntPendingBit(TIM5, TIM_INT_UPDATE);
-        if (started && ir_cap.count >= IR_MIN_PAIRS)
+
+        if (++timeout_cnt >= 2)  // 溢出2次 = 130ms
         {
-            ir_cap.complete_count = ir_cap.count;  /* 先把帧长存下来再清零 */
-            ir_cap.capture_complete = true;
+            if (started && ir_cap.count >= IR_MIN_PAIRS)
+            {
+                ir_cap.complete_count = ir_cap.count;  /* 先把帧长存下来再清零 */
+                ir_cap.capture_complete = true;
+            }
+            started = 0;
+            ir_cap.count = 0;
+            timeout_cnt = 0;
         }
-        started = 0;
-        ir_cap.count = 0;
     }
     if (TIM_GetIntStatus(TIM5, TIM_INT_CC1) != RESET)
     {
@@ -471,10 +499,12 @@ void TIM5_IRQHandler(void)
         {
             started = 1;
             TIM_SetCnt(TIM5, 0);
+            timeout_cnt = 0;  // 新帧开始,重置超时计数
             return;
         }
         ir_cap.data[ir_cap.count].space = TIM_GetCap1(TIM5);
         TIM_SetCnt(TIM5, 0);
+        timeout_cnt = 0;  // 收到边沿,重置超时计数
         if (ir_cap.count < IR_MAX_EDGES - 1)
         {
             ir_cap.count++;
@@ -491,6 +521,7 @@ void TIM5_IRQHandler(void)
         }
 
         TIM_SetCnt(TIM5, 0);
+        timeout_cnt = 0;  // 收到边沿,重置超时计数
     }
 }
 
