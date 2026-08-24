@@ -1,12 +1,14 @@
 #include "bsp_ir.h"
 #include <stddef.h>
+#include <string.h>
 /* 红外发送控制结构 */
-typedef struct {
+typedef struct
+{
     IR_Protocol_t protocol;
     IR_State_t state;
-    const uint8_t *data;      // 字节数组指针
-    uint16_t bit_count;       // 总位数
-    uint16_t current_bit;     // 当前位索引
+    const uint8_t *data;  // 字节数组指针
+    uint16_t bit_count;   // 总位数
+    uint16_t current_bit; // 当前位索引
     uint8_t is_sending;
 } IR_Control_t;
 
@@ -16,30 +18,45 @@ static IR_Control_t ir_ctrl = {
     .data = NULL,
     .bit_count = 0,
     .current_bit = 0,
-    .is_sending = 0
-};
+    .is_sending = 0};
 
-typedef struct 
+typedef struct
 {
     uint16_t mark;
     uint16_t space;
-}IR_data_t;
+} IR_data_t;
 
-typedef struct 
+typedef struct
 {
     IR_data_t *data;
     uint16_t count;
+    uint16_t complete_count; /* 帧结束时的对数, 主循环解码用 */
     IR_Protocol_t protocol;
-}IR_RxFrame_t;;
+    volatile bool capture_complete;
+} IR_RxFrame_t;
 
-#define IR_MAX_EDGES 200
-static IR_data_t ir_buffer[IR_MAX_EDGES];  // 静态分配
+typedef struct
+{
+    IR_Protocol_t protocol;
+    uint16_t bit_count;
+    uint8_t data[200];
+} IR_Decoded_t;
+IR_Decoded_t ir_decoded = {
+    .protocol = IR_PROTOCOL_UNKNOWN,
+    .bit_count = 0,
+    .data = {0}};
+
+// 用于判断最短帧
+#define IR_MIN_PAIRS 12
+#define IR_MAX_EDGES 400
+static IR_data_t ir_buffer[IR_MAX_EDGES]; // 静态分配
 
 IR_RxFrame_t ir_cap = {
     .data = ir_buffer,
-    .count = 0
-};
-
+    .count = 0,
+    .complete_count = 0,
+    .protocol = IR_PROTOCOL_ERROR,
+    .capture_complete = false};
 
 /* 微秒转定时器计数值 (TIM6: 24MHz / 24 = 1MHz, 1us per tick) */
 #define US_TO_TICKS(us) (us)
@@ -55,9 +72,9 @@ void IR_PWM_Init(void)
     RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_TIM2, ENABLE);
 
     GPIO_InitStruct(&GPIO_InitStructure);
-    GPIO_InitStructure.Pin            = GPIO_PIN_2;
-    GPIO_InitStructure.GPIO_Mode      = GPIO_Mode_AF_PP;
-    GPIO_InitStructure.GPIO_Current   = GPIO_DC_4mA;
+    GPIO_InitStructure.Pin = GPIO_PIN_2;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_InitStructure.GPIO_Current = GPIO_DC_4mA;
     GPIO_InitStructure.GPIO_Alternate = GPIO_AF2_TIM2;
     GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
     GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
@@ -68,16 +85,16 @@ void IR_PWM_Init(void)
      */
     TIM_InitTimBaseStruct(&TIM_TimeBaseStructure);
     TIM_TimeBaseStructure.Prescaler = 0;
-    TIM_TimeBaseStructure.Period    = 631;
-    TIM_TimeBaseStructure.ClkDiv    = 0;
-    TIM_TimeBaseStructure.CntMode   = TIM_CNT_MODE_UP;
+    TIM_TimeBaseStructure.Period = 631;
+    TIM_TimeBaseStructure.ClkDiv = 0;
+    TIM_TimeBaseStructure.CntMode = TIM_CNT_MODE_UP;
     TIM_InitTimeBase(TIM2, &TIM_TimeBaseStructure);
 
     TIM_InitOcStruct(&TIM_OCInitStructure);
-    TIM_OCInitStructure.OcMode      = TIM_OCMODE_PWM1;
+    TIM_OCInitStructure.OcMode = TIM_OCMODE_PWM1;
     TIM_OCInitStructure.OutputState = TIM_OUTPUT_STATE_DISABLE;
-    TIM_OCInitStructure.Pulse       = 211;
-    TIM_OCInitStructure.OcPolarity  = TIM_OC_POLARITY_HIGH;
+    TIM_OCInitStructure.Pulse = 211;
+    TIM_OCInitStructure.OcPolarity = TIM_OC_POLARITY_HIGH;
     TIM_InitOc3(TIM2, &TIM_OCInitStructure);
 
     TIM_ConfigOc3Preload(TIM2, TIM_OC_PRE_LOAD_ENABLE);
@@ -99,46 +116,42 @@ void IR_Capture_Init(void)
     RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_TIM5, ENABLE);
 
     GPIO_InitStruct(&GPIO_InitStructure);
-    GPIO_InitStructure.Pin            = GPIO_PIN_0;
-    GPIO_InitStructure.GPIO_Mode      = GPIO_Mode_Input;
-    GPIO_InitStructure.GPIO_Current   = GPIO_DC_4mA;
+    GPIO_InitStructure.Pin = GPIO_PIN_0;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Input;
+    GPIO_InitStructure.GPIO_Current = GPIO_DC_4mA;
     GPIO_InitStructure.GPIO_Alternate = GPIO_AF1_TIM5;
     GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
     GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
 
-    /*
-     * TIM2_CLK = 24MHz
-     * 24MHz / (631 + 1) = 37.975kHz
-     */
     TIM_InitTimBaseStruct(&TIM_TimeBaseStructure);
     TIM_TimeBaseStructure.Prescaler = 23; // 1个数是1us
-    TIM_TimeBaseStructure.Period    = 0xFFFF;
-    TIM_TimeBaseStructure.ClkDiv    = 0;
-    TIM_TimeBaseStructure.CntMode   = TIM_CNT_MODE_UP;
+    TIM_TimeBaseStructure.Period = 0xFFFF;
+    TIM_TimeBaseStructure.ClkDiv = 0;
+    TIM_TimeBaseStructure.CntMode = TIM_CNT_MODE_UP;
     TIM_InitTimeBase(TIM5, &TIM_TimeBaseStructure);
     TIM_SetCnt(TIM5, 0);
 
     TIM_InitIcStruct(&TIM_ICInitStructure);
-    TIM_ICInitStructure.Channel     = TIM_CH_2;
-    TIM_ICInitStructure.IcPolarity  = TIM_IC_POLARITY_RISING;
+    TIM_ICInitStructure.Channel = TIM_CH_2;
+    TIM_ICInitStructure.IcPolarity = TIM_IC_POLARITY_RISING;
     TIM_ICInitStructure.IcSelection = TIM_IC_SELECTION_INDIRECTTI;
     TIM_ICInitStructure.IcPrescaler = TIM_IC_PSC_DIV1;
-    TIM_ICInitStructure.IcFilter    = 0x0;
+    TIM_ICInitStructure.IcFilter = 0x0;
     TIM_ICInit(TIM5, &TIM_ICInitStructure);
 
-    TIM_ICInitStructure.Channel     = TIM_CH_1;
-    TIM_ICInitStructure.IcPolarity  = TIM_IC_POLARITY_FALLING;
+    TIM_ICInitStructure.Channel = TIM_CH_1;
+    TIM_ICInitStructure.IcPolarity = TIM_IC_POLARITY_FALLING;
     TIM_ICInitStructure.IcSelection = TIM_IC_SELECTION_DIRECTTI;
     TIM_ICInit(TIM5, &TIM_ICInitStructure);
 
-    NVIC_InitStructure.NVIC_IRQChannel                   = TIM5_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannel = TIM5_IRQn;
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
     NVIC_Init(&NVIC_InitStructure);
 
     /* Enable the CC2 Interrupt Request */
-    TIM_ConfigInt(TIM5, TIM_INT_CC2 | TIM_INT_CC1, ENABLE);
+    TIM_ConfigInt(TIM5, TIM_INT_CC2 | TIM_INT_CC1 | TIM_INT_UPDATE, ENABLE);
     /* 前面的初始化和立即装载可能已经置位更新标志 */
     TIM_ClrIntPendingBit(TIM5, TIM_INT_UPDATE | TIM_INT_CC1 | TIM_INT_CC2);
 
@@ -153,17 +166,17 @@ void IR_TIM6_Init(void)
     // 包络定时器: 24MHz / (23+1) = 1MHz, 1us per tick
     RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_TIM6, ENABLE);
     TIM_InitTimBaseStruct(&TIM_TimeBaseStructure);
-    TIM_TimeBaseStructure.Prescaler = 23;       // 24MHz -> 1MHz
-    TIM_TimeBaseStructure.Period    = 0xFFFF;   // 将在发送时动态设置
-    TIM_TimeBaseStructure.ClkDiv    = 0;
-    TIM_TimeBaseStructure.CntMode   = TIM_CNT_MODE_UP;
+    TIM_TimeBaseStructure.Prescaler = 23;  // 24MHz -> 1MHz
+    TIM_TimeBaseStructure.Period = 0xFFFF; // 将在发送时动态设置
+    TIM_TimeBaseStructure.ClkDiv = 0;
+    TIM_TimeBaseStructure.CntMode = TIM_CNT_MODE_UP;
     TIM_InitTimeBase(TIM6, &TIM_TimeBaseStructure);
 
     /* Enable the TIM6 global Interrupt */
-    NVIC_InitStructure.NVIC_IRQChannel                   = TIM6_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannel = TIM6_IRQn;
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
 
     /* 前面的初始化和立即装载可能已经置位更新标志 */
     TIM_ClrIntPendingBit(TIM6, TIM_INT_UPDATE);
@@ -175,7 +188,6 @@ void IR_TIM6_Init(void)
     TIM_Enable(TIM6, DISABLE);
 }
 
-
 void IR_Init(void)
 {
     // PWM定时器初始化
@@ -183,6 +195,9 @@ void IR_Init(void)
 
     // 控制PWM时间的定时器
     IR_TIM6_Init();
+
+    // 输入捕获定时器初始化
+    IR_Capture_Init();
 }
 
 void IR_Start(void)
@@ -214,7 +229,8 @@ static void IR_SetTimerPeriod(uint16_t period_us)
 /* 发送红外数据 */
 void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
 {
-    if (ir_ctrl.is_sending) {
+    if (ir_ctrl.is_sending)
+    {
         return; // 正在发送中
     }
 
@@ -226,27 +242,31 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
     ir_ctrl.is_sending = 1;
 
     // 问题4修复：根据协议切换载波频率
-    if (protocol == IR_PROTOCOL_SONY) {
+    if (protocol == IR_PROTOCOL_SONY)
+    {
         // Sony: 40kHz, 24MHz / 600 = 40kHz
         TIM2->AR = 599;
-        TIM2->CCDAT3 = 200;  // 1/3 占空比
-    } else {
+        TIM2->CCDAT3 = 200; // 1/3 占空比
+    }
+    else
+    {
         // NEC/AEHA: 38kHz, 24MHz / 632 = 37.97kHz
         TIM2->AR = 631;
         TIM2->CCDAT3 = 211;
     }
 
     uint16_t start_mark_time = 0;
-    switch (protocol) {
-        case IR_PROTOCOL_NEC:
-            start_mark_time = NEC_START_MARK;
-            break;
-        case IR_PROTOCOL_AEHA:
-            start_mark_time = AEHA_START_MARK;
-            break;
-        case IR_PROTOCOL_SONY:
-            start_mark_time = SONY_START_MARK;
-            break;
+    switch (protocol)
+    {
+    case IR_PROTOCOL_NEC:
+        start_mark_time = NEC_START_MARK;
+        break;
+    case IR_PROTOCOL_AEHA:
+        start_mark_time = AEHA_START_MARK;
+        break;
+    case IR_PROTOCOL_SONY:
+        start_mark_time = SONY_START_MARK;
+        break;
     }
 
     // 设置TIM6定时器的ARR值，到达这个值会触发中断，也就是header发射完成触发中断
@@ -255,44 +275,260 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
     IR_Start();
 }
 
+/* 误差是否落在 center±25% 内 */
+static uint8_t IR_IsNear(uint16_t val, uint16_t center)
+{
+    return (val >= (uint32_t)center * 3 / 4) && (val <= (uint32_t)center * 5 / 4);
+}
+IR_DecodeErr_t IR_DecodeFrame(void)
+{
+    static IR_data_t decode_buffer[400] = {0};
+    memset(decode_buffer, 0, sizeof(decode_buffer));
+
+    uint16_t nbits = 0;
+    // 把数据拷贝到临时存起来，防止被覆盖
+    NVIC_DisableIRQ(TIM5_IRQn);
+    uint16_t count = ir_cap.complete_count;   /* ISR 清零 count 前存下的帧长 */
+    /* 快照: 多拷一个元素 —— Sony 单发时最后一位的 mark 存在 data[count] */
+    for (uint16_t i = 0; i <= count && i < IR_MAX_EDGES; i++)
+    {
+        decode_buffer[i] = ir_cap.data[i];
+    }
+    NVIC_EnableIRQ(TIM5_IRQn);
+
+    if (count < IR_MIN_PAIRS)
+    {
+        return IR_DECODE_ERR_TOO_SHORT; // 数据不够，最低是 sony的12bit
+    }
+
+    // 把接受到的数据解码
+    /* ---- 1. 识别协议: mark 和 space 都要落在窗口内 ---- */
+    if (IR_IsNear(decode_buffer[0].mark, NEC_START_MARK) &&
+        IR_IsNear(decode_buffer[0].space, NEC_START_SPACE))
+    {
+        // 标准单帧NEC
+        if(count == 33)
+        {
+            ir_decoded.protocol = IR_PROTOCOL_NEC;
+        }
+        else if(count > 33)
+        {
+            // 如果不是单帧NEC，则判断是否重复帧NEC
+            if((IR_IsNear(decode_buffer[34].mark, 9000)) && (IR_IsNear(decode_buffer[34].space, 2500)))
+            {
+                ir_decoded.protocol = IR_PROTOCOL_NEC;
+            }
+            else
+            {
+                ir_decoded.protocol = IR_PROTOCOL_UNKNOWN;
+            }
+        }
+        
+    }
+    else if (IR_IsNear(decode_buffer[0].mark, AEHA_START_MARK) &&
+             IR_IsNear(decode_buffer[0].space, AEHA_START_SPACE))
+    {
+        ir_decoded.protocol = IR_PROTOCOL_AEHA;
+    }
+    else if (IR_IsNear(decode_buffer[0].mark, SONY_START_MARK) &&
+             IR_IsNear(decode_buffer[0].space, SONY_BIT_SPACE))
+    {
+        ir_decoded.protocol = IR_PROTOCOL_SONY;
+    }
+    else
+    {
+       ir_decoded.protocol = IR_PROTOCOL_UNKNOWN;
+    }
+
+    switch (ir_decoded.protocol)
+    {
+        case IR_PROTOCOL_NEC:
+        {
+            if (count < 33)
+            {
+                return IR_DECODE_ERR_NEC_LEN;
+            }
+            nbits = 32;
+            for (uint16_t i = 0; i < nbits; i++)
+            {
+                /* space 1690=1 / 560=0, 阈值 1100 */
+                // 这个数组里面存的是字节
+                ir_decoded.data[i / 8] |=
+                    (uint8_t)((decode_buffer[1 + i].space > 1100) ? 1 : 0) << (i % 8);
+            }
+            break;
+        }
+
+        case IR_PROTOCOL_AEHA:
+        {
+            uint16_t end = count; /* 无重发: 停止位是最后一个 mark */
+            for (uint16_t i = 1; i < count; i++)
+            {
+                if (decode_buffer[i].space >= 4000)
+                {
+                    end = i;
+                    break;
+                }
+            }
+            nbits = end - 1;
+            if (nbits < 48)
+                return IR_DECODE_ERR_AEHA_LEN; /* AEHA 最短 48 位 */
+            for (uint16_t i = 0; i < nbits; i++)
+            {
+                /* space 1275=1 / 425=0, 阈值 850 */
+                ir_decoded.data[i / 8] |=
+                    (uint8_t)((decode_buffer[1 + i].space > 850) ? 1 : 0) << (i % 8);
+            }
+            break;
+        }
+
+
+        case IR_PROTOCOL_SONY:
+        {
+            /* Sony 无停止位: 单发时最后一位 mark 在 data[count], 位数 = count;
+            * 重发时最后一位 space 被帧间隙撑大(≥5ms), 用它定位 */
+            nbits = count;
+            for (uint16_t i = 1; i < count; i++)
+            {
+                if (decode_buffer[i].space >= 5000)
+                {
+                    nbits = i;
+                    break;
+                }
+            }
+            if (nbits != 12 && nbits != 15 && nbits != 20)
+                return IR_DECODE_ERR_SONY_LEN;
+            for (uint16_t i = 0; i < nbits; i++)
+            {
+                /* mark 1200=1 / 600=0 */
+                ir_decoded.data[i / 8] |=
+                    (uint8_t)((decode_buffer[1 + i].mark >= 900) ? 1 : 0) << (i % 8);
+            }
+            break;
+        }
+
+        case IR_PROTOCOL_UNKNOWN:
+        {
+            
+        }
+
+    }
+    ir_decoded.bit_count = nbits;
+    return IR_DECODE_OK;
+}
+
+/* 主循环轮询: 学到一帧就打印 */
+void IR_Poll(void)
+{
+    IR_DecodeErr_t err;
+
+    if (!ir_cap.capture_complete) return;
+    ir_cap.capture_complete = false;
+    if (ir_ctrl.is_sending) return;      /* 自己发射的回声不学习 */
+
+    err = IR_DecodeFrame();
+    // IR_Poll 里, err 打印下面加:
+    printf("  count=%u:", ir_cap.complete_count);
+    for (uint16_t i = 0; i < ir_cap.complete_count; i++) {
+        printf(" %u/%u", ir_cap.data[i].mark, ir_cap.data[i].space);
+    }
+    printf("\r\n");
+    printf("  last pair [%u]: mark=%u space=%u\r\n", ir_cap.complete_count,
+           ir_cap.data[ir_cap.complete_count - 1].mark,
+           ir_cap.data[ir_cap.complete_count - 1].space);
+
+    if (err != IR_DECODE_OK)
+    {
+        printf("IR decode err=%d\r\n", err);
+        /* 临时调试: 看原始引导码 */
+        printf("  raw[0] mark=%u space=%u count=%u\r\n",
+               ir_cap.data[0].mark, ir_cap.data[0].space, ir_cap.complete_count);
+        return;
+    }
+
+    printf("IR proto=%d bits=%d data:", ir_decoded.protocol, ir_decoded.bit_count);
+    for (uint16_t i = 0; i < (ir_decoded.bit_count + 7) / 8; i++)
+    {
+        printf(" %02X", ir_decoded.data[i]);
+    }
+    printf("\r\n");
+
+    /* 调试: Sony 单发时显示最后一位的 mark */
+    if (ir_decoded.protocol == IR_PROTOCOL_SONY) {
+        printf("  tail mark=%u\r\n", ir_cap.data[ir_cap.complete_count].mark);
+    }
+
+    memset(ir_decoded.data, 0, sizeof(ir_decoded.data));
+    ir_decoded.bit_count = 0;
+    // for(uint16_t i = 0; i < (ir_decoded.bit_count + 7) / 8; i++)
+    // {
+    //     ir_decoded.data[i] = 0;
+    // }
+}
+
+
 // 输入捕获中断
 void TIM5_IRQHandler(void)
 {
-    static uint16_t capture_value1 = 0, capture_value2 = 0;
     static uint8_t started = 0;
-    if(TIM_GetIntStatus(TIM5, TIM_INT_CC1) != RESET)
+    static uint8_t timeout_cnt = 0;  // 超时计数器
+
+    if (TIM_GetIntStatus(TIM5, TIM_INT_UPDATE) != RESET)
+    {
+        // 更新中断 (65ms溢出)
+        TIM_ClrIntPendingBit(TIM5, TIM_INT_UPDATE);
+
+        if (++timeout_cnt >= 2)  // 溢出2次 = 130ms
+        {
+            if (started && ir_cap.count >= IR_MIN_PAIRS)
+            {
+                ir_cap.complete_count = ir_cap.count;  /* 先把帧长存下来再清零 */
+                ir_cap.capture_complete = true;
+            }
+            started = 0;
+            ir_cap.count = 0;
+            timeout_cnt = 0;
+        }
+    }
+    if (TIM_GetIntStatus(TIM5, TIM_INT_CC1) != RESET)
     {
         // 下降沿
         TIM_ClrIntPendingBit(TIM5, TIM_INT_CC1);
-        capture_value1 = TIM_GetCap1(TIM5);
-        if(!started)
+
+        if (!started)
         {
             started = 1;
+            TIM_SetCnt(TIM5, 0);
+            timeout_cnt = 0;  // 新帧开始,重置超时计数
             return;
         }
-        ir_cap.data[ir_cap.count].space = (capture_value1 - capture_value2 > 0) ? capture_value1 - capture_value2 : 
-                                                    65535 - capture_value2 + capture_value1;
-        if (ir_cap.count < IR_MAX_EDGES - 1) 
+        ir_cap.data[ir_cap.count].space = TIM_GetCap1(TIM5);
+        TIM_SetCnt(TIM5, 0);
+        timeout_cnt = 0;  // 收到边沿,重置超时计数
+        if (ir_cap.count < IR_MAX_EDGES - 1)
         {
             ir_cap.count++;
         }
-
     }
-    if(TIM_GetIntStatus(TIM5, TIM_INT_CC2) != RESET)
-    {   
+    if (TIM_GetIntStatus(TIM5, TIM_INT_CC2) != RESET)
+    {
         // 上升沿
         TIM_ClrIntPendingBit(TIM5, TIM_INT_CC2);
-        capture_value2 = TIM_GetCap2(TIM5);
-        ir_cap.data[ir_cap.count].mark = (capture_value2 - capture_value1 > 0) ? capture_value2 - capture_value1 : 
-                                                        65535 - capture_value1 + capture_value2;
-    }
+        if (started)
+        {
+            // 防止空闲时有毛刺
+            ir_cap.data[ir_cap.count].mark = TIM_GetCap2(TIM5);
+        }
 
+        TIM_SetCnt(TIM5, 0);
+        timeout_cnt = 0;  // 收到边沿,重置超时计数
+    }
 }
 
 /* TIM6中断处理 - 状态机 */
 void TIM6_IRQHandler(void)
 {
-    uint16_t space_time, mark_time;  // 变量声明提到switch外
+    uint16_t space_time, mark_time; // 变量声明提到switch外
 
     if (TIM_GetIntStatus(TIM6, TIM_INT_UPDATE) != RESET)
     {
@@ -301,118 +537,139 @@ void TIM6_IRQHandler(void)
 
         switch (ir_ctrl.state)
         {
-            case IR_STATE_START_MARK:
-                // 起始码Mark结束，关闭PWM，进入Space
-                IR_Stop();
-                ir_ctrl.state = IR_STATE_START_SPACE;
+        case IR_STATE_START_MARK:
+            // 起始码Mark结束，关闭PWM，进入Space
+            IR_Stop();
+            ir_ctrl.state = IR_STATE_START_SPACE;
 
-                if (ir_ctrl.protocol == IR_PROTOCOL_SONY) {
-                    space_time = SONY_BIT_SPACE;  // Sony: 600µs
-                } else if (ir_ctrl.protocol == IR_PROTOCOL_NEC) {
-                    space_time = NEC_START_SPACE;
-                } else {
-                    space_time = AEHA_START_SPACE;
-                }
-                IR_SetTimerPeriod(space_time);
-                break;
+            if (ir_ctrl.protocol == IR_PROTOCOL_SONY)
+            {
+                space_time = SONY_BIT_SPACE; // Sony: 600µs
+            }
+            else if (ir_ctrl.protocol == IR_PROTOCOL_NEC)
+            {
+                space_time = NEC_START_SPACE;
+            }
+            else
+            {
+                space_time = AEHA_START_SPACE;
+            }
+            IR_SetTimerPeriod(space_time);
+            break;
 
-            case IR_STATE_START_SPACE:
-                // 起始码Space结束，进入数据位Mark
-                ir_ctrl.state = IR_STATE_DATA_MARK;
-                
-                // sony跟1和0区别在于PWM持续时间；NEC和AEHA是space空闲低电平的时间区别1和0
-                if(ir_ctrl.protocol == IR_PROTOCOL_SONY)
+        case IR_STATE_START_SPACE:
+            // 起始码Space结束，进入数据位Mark
+            ir_ctrl.state = IR_STATE_DATA_MARK;
+
+            // sony跟1和0区别在于PWM持续时间；NEC和AEHA是space空闲低电平的时间区别1和0
+            if (ir_ctrl.protocol == IR_PROTOCOL_SONY)
+            {
+                uint8_t byte_idx = ir_ctrl.current_bit / 8;
+                uint8_t bit_idx = ir_ctrl.current_bit & 7;
+                uint8_t bit = (ir_ctrl.data[byte_idx] >> bit_idx) & 0x01;
+                mark_time = (bit == 0) ? SONY_BIT0_MARK : SONY_BIT1_MARK;
+            }
+            else
+            {
+                mark_time = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ? NEC_BIT_MARK : AEHA_BIT_MARK;
+            }
+
+            IR_SetTimerPeriod(mark_time);
+            IR_Start();
+            break;
+
+        case IR_STATE_DATA_MARK:
+            // 数据位Mark结束，关闭PWM
+            IR_Stop();
+
+            if (ir_ctrl.protocol == IR_PROTOCOL_SONY)
+            {
+                // Sony协议的Space部分
+                ir_ctrl.state = IR_STATE_DATA_SPACE;
+                IR_SetTimerPeriod(SONY_BIT_SPACE);
+            }
+            else
+            {
+                // NEC/AEHA协议的Space部分
+                uint8_t byte_idx = ir_ctrl.current_bit / 8;
+                uint8_t bit_idx = ir_ctrl.current_bit & 7;
+                uint8_t bit = (ir_ctrl.data[byte_idx] >> bit_idx) & 0x01;
+                ir_ctrl.state = IR_STATE_DATA_SPACE;
+
+                uint16_t space_time;
+                if (ir_ctrl.protocol == IR_PROTOCOL_NEC)
                 {
-                    uint8_t byte_idx = ir_ctrl.current_bit / 8;
-                    uint8_t bit_idx = ir_ctrl.current_bit & 7;
-                    uint8_t bit = (ir_ctrl.data[byte_idx] >> bit_idx) & 0x01;
-                    mark_time = (bit == 0) ? SONY_BIT0_MARK : SONY_BIT1_MARK;
+                    space_time = bit ? NEC_BIT1_SPACE : NEC_BIT0_SPACE;
                 }
                 else
                 {
-                    mark_time = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ? NEC_BIT_MARK : AEHA_BIT_MARK;
+                    space_time = bit ? AEHA_BIT1_SPACE : AEHA_BIT0_SPACE;
                 }
+                IR_SetTimerPeriod(space_time);
+            }
+            break;
 
-                IR_SetTimerPeriod(mark_time);
+        case IR_STATE_DATA_SPACE:
+            // 数据位Space结束
+            ir_ctrl.current_bit++;
+            if (ir_ctrl.current_bit >= ir_ctrl.bit_count)
+            {
+                // 所有位发送完成，发送停止位
+                ir_ctrl.state = IR_STATE_STOP;
+
+                uint16_t stop_time;
+                if (ir_ctrl.protocol == IR_PROTOCOL_NEC)
+                {
+                    stop_time = NEC_STOP_MARK;
+                }
+                else if (ir_ctrl.protocol == IR_PROTOCOL_AEHA)
+                {
+                    stop_time = AEHA_STOP_MARK;
+                }
+                else
+                {
+                    // Sony没有停止位，直接结束
+                    IR_Stop();
+                    TIM_Enable(TIM6, DISABLE);
+                    ir_ctrl.is_sending = 0;
+                    ir_ctrl.state = IR_STATE_IDLE;
+                    return;
+                }
+                IR_SetTimerPeriod(stop_time);
                 IR_Start();
-                break;
+            }
+            else
+            {
+                // 继续发送下一位
+                ir_ctrl.state = IR_STATE_DATA_MARK;
 
-            case IR_STATE_DATA_MARK:
-                // 数据位Mark结束，关闭PWM
-                IR_Stop();
-
-                if (ir_ctrl.protocol == IR_PROTOCOL_SONY) {
-                    // Sony协议的Space部分
-                    ir_ctrl.state = IR_STATE_DATA_SPACE;
-                    IR_SetTimerPeriod(SONY_BIT_SPACE);
-                } else {
-                    // NEC/AEHA协议的Space部分
+                if (ir_ctrl.protocol == IR_PROTOCOL_SONY)
+                {
+                    // 问题2修复：LSB first
                     uint8_t byte_idx = ir_ctrl.current_bit / 8;
                     uint8_t bit_idx = ir_ctrl.current_bit & 7;
                     uint8_t bit = (ir_ctrl.data[byte_idx] >> bit_idx) & 0x01;
-                    ir_ctrl.state = IR_STATE_DATA_SPACE;
-
-                    uint16_t space_time;
-                    if (ir_ctrl.protocol == IR_PROTOCOL_NEC) {
-                        space_time = bit ? NEC_BIT1_SPACE : NEC_BIT0_SPACE;
-                    } else {
-                        space_time = bit ? AEHA_BIT1_SPACE : AEHA_BIT0_SPACE;
-                    }
-                    IR_SetTimerPeriod(space_time);
+                    IR_SetTimerPeriod(bit ? SONY_BIT1_MARK : SONY_BIT0_MARK);
                 }
-                break;
-
-            case IR_STATE_DATA_SPACE:
-                // 数据位Space结束
-                ir_ctrl.current_bit++;
-                if (ir_ctrl.current_bit >= ir_ctrl.bit_count) {
-                    // 所有位发送完成，发送停止位
-                    ir_ctrl.state = IR_STATE_STOP;
-
-                    uint16_t stop_time;
-                    if (ir_ctrl.protocol == IR_PROTOCOL_NEC) {
-                        stop_time = NEC_STOP_MARK;
-                    } else if (ir_ctrl.protocol == IR_PROTOCOL_AEHA) {
-                        stop_time = AEHA_STOP_MARK;
-                    } else {
-                        // Sony没有停止位，直接结束
-                        IR_Stop();
-                        TIM_Enable(TIM6, DISABLE);
-                        ir_ctrl.is_sending = 0;
-                        ir_ctrl.state = IR_STATE_IDLE;
-                        return;
-                    }
-                    IR_SetTimerPeriod(stop_time);
-                    IR_Start();
-                } else {
-                    // 继续发送下一位
-                    ir_ctrl.state = IR_STATE_DATA_MARK;
-
-                    if (ir_ctrl.protocol == IR_PROTOCOL_SONY) {
-                        // 问题2修复：LSB first
-                        uint8_t byte_idx = ir_ctrl.current_bit / 8;
-                        uint8_t bit_idx = ir_ctrl.current_bit & 7;
-                        uint8_t bit = (ir_ctrl.data[byte_idx] >> bit_idx) & 0x01;
-                        IR_SetTimerPeriod(bit ? SONY_BIT1_MARK : SONY_BIT0_MARK);
-                    } else {
-                        uint16_t mark_time = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ?
-                                              NEC_BIT_MARK : AEHA_BIT_MARK;
-                        IR_SetTimerPeriod(mark_time);
-                    }
-                    IR_Start();
+                else
+                {
+                    uint16_t mark_time = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ? NEC_BIT_MARK : AEHA_BIT_MARK;
+                    IR_SetTimerPeriod(mark_time);
                 }
-                break;
+                IR_Start();
+            }
+            break;
 
-            case IR_STATE_STOP:
-                // 停止位发送完成
-                IR_Stop();
-                TIM_Enable(TIM6, DISABLE);
-                ir_ctrl.is_sending = 0;
-                ir_ctrl.state = IR_STATE_IDLE;
-                break;
+        case IR_STATE_STOP:
+            // 停止位发送完成
+            IR_Stop();
+            TIM_Enable(TIM6, DISABLE);
+            ir_ctrl.is_sending = 0;
+            ir_ctrl.state = IR_STATE_IDLE;
+            break;
 
-            default:
-                break;
+        default:
+            break;
         }
     }
 }
