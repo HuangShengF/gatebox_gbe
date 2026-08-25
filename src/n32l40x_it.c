@@ -36,7 +36,6 @@
 #include "n32l40x.h"
 #include "main.h"
 #include "usb_istr.h"
-#include "hw_config.h"
 /** @addtogroup N32L40X_StdPeriph_Template
  * @{
  */
@@ -156,24 +155,6 @@ void EXTI9_5_IRQHandler(void)
     {
         /* Clear the EXTI line 7 pending bit */
         EXTI_ClrITPendBit(EXTI_LINE7);
-    }
-}
-
-/**
- * @brief  This function handles UASRT1 global interrupt request.
- */
-void USART1_IRQHandler(void)
-{
-    if (USART_GetFlagStatus(USART1, USART_FLAG_RXDNE) != RESET)
-    {
-        /* Send the received data to the PC Host*/
-        USART_To_USB_Send_Data();
-    }
-
-    /* If overrun condition occurs, clear the ORE flag and recover communication */
-    if (USART_GetFlagStatus(USART1, USART_FLAG_OREF) != RESET)
-    {
-        USART_ReceiveData(USART1);
     }
 }
 

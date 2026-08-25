@@ -40,7 +40,7 @@
 #include "usb_prop.h"
 #include "usb_desc.h"
 #include "usb_pwr.h"
-#include "hw_config.h"
+#include "usb_cdc.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
@@ -133,8 +133,7 @@ void Virtual_Com_Port_init(void)
     /* Perform basic device initialization operations */
     USB_SilInit();
 
-    /* configure the USART to the default settings */
-    USART_Config_Default();
+    USB_CDC_Init();
 
     bDeviceState = UNCONNECTED;
 }
@@ -144,6 +143,8 @@ void Virtual_Com_Port_init(void)
  */
 void Virtual_Com_Port_Reset(void)
 {
+    USB_CDC_Reset();
+
     /* Set Virtual_Com_Port DEVICE as not configured */
     pInformation->CurrentConfiguration = 0;
 
@@ -218,7 +219,7 @@ void Virtual_Com_Port_Status_In(void)
 {
     if (Request == SET_LINE_CODING)
     {
-        USART_Config();
+        /* CDC is connected directly to the MCU; do not reconfigure USART1. */
         Request = 0;
     }
 }

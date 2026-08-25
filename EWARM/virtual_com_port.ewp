@@ -1143,6 +1143,9 @@
             <name>$PROJ_DIR$\..\src\usb_endp.c</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\src\usb_cdc.c</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\src\usb_istr.c</name>
         </file>
         <file>
