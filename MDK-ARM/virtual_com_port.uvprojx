@@ -554,6 +554,11 @@
               <FilePath>..\src\usb_endp.c</FilePath>
             </File>
             <File>
+              <FileName>usb_cdc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\src\usb_cdc.c</FilePath>
+            </File>
+            <File>
               <FileName>usb_istr.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\src\usb_istr.c</FilePath>

@@ -35,8 +35,6 @@
 /* Includes ------------------------------------------------------------------*/
 
 #include "usb_lib.h"
-#include "usb_prop.h"
-#include "usb_desc.h"
 #include "hw_config.h"
 #include "usb_pwr.h"
 
@@ -45,17 +43,8 @@
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 ErrorStatus HSEStartUpStatus;
-USART_InitType USART_InitStructure;
-
-uint8_t  USART_Rx_Buffer [USART_RX_DATA_SIZE]; 
-uint32_t USART_Rx_ptr_in = 0;
-uint32_t USART_Rx_ptr_out = 0;
-uint32_t USART_Rx_length  = 0;
-uint8_t  USB_Tx_State = 0;
 
 /* Extern variables ----------------------------------------------------------*/
-extern LINE_CODING linecoding;
-
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
 
@@ -112,54 +101,6 @@ void Leave_LowPowerMode(void)
 }
 
 /**
-  * @brief  Configures USART COM port.
-  * @param  USART_InitStruct: pointer to a USART_InitType structure that
-  *         contains the configuration information for the specified USART peripheral.
-  */
-void USART_COM_Init(USART_InitType* USART_InitStruct)
-{
-    GPIO_InitType GPIO_InitStructure;
-    NVIC_InitType NVIC_InitStructure;
-
-    /* Enable GPIO clock */
-    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA | RCC_APB2_PERIPH_AFIO, ENABLE);
-    /* Enable USART1 Clock */
-    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_USART1, ENABLE);
-
-    /* Initialize GPIO_InitStructure */
-    GPIO_InitStruct(&GPIO_InitStructure);
-
-    /* Configure USART1 Tx as alternate function push-pull */
-    GPIO_InitStructure.Pin = GPIO_PIN_9;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_InitStructure.GPIO_Alternate = GPIO_AF4_USART1;
-    GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
-
-
-    /* Configure USART1 Rx as input floating */
-    GPIO_InitStructure.Pin = GPIO_PIN_10;
-    GPIO_InitStructure.GPIO_Pull      = GPIO_Pull_Up;
-    GPIO_InitStructure.GPIO_Alternate = GPIO_AF4_USART1;
-    GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
-
-    /* Enable the USARTy Interrupt */
-    NVIC_InitStructure.NVIC_IRQChannel            = USART1_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd         = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
-        
-    /* USART1 configuration */
-    USART_Init(USART1, USART_InitStruct);
-  
-    /* Enable the USART1 Receive interrupt */
-    USART_ConfigInt(USART1, USART_INT_RXDNE, ENABLE);
-
-    /* Enable USART1 */
-    USART_Enable(USART1, ENABLE);
-}
-
-/**
  * @brief Configures the USB interrupts.
  */
 void USB_Interrupts_Config(void)
@@ -191,211 +132,6 @@ void USB_Interrupts_Config(void)
     EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising;
     EXTI_InitStructure.EXTI_LineCmd = ENABLE;
     EXTI_InitPeripheral(&EXTI_InitStructure);
-}
-
-/**
- * @brief configure the UASRT with default values.
- */
-void USART_Config_Default(void)
-{
-    /* USART1 default configuration */
-    /* USART1 configured as follow:
-        - BaudRate = 115200 baud  
-        - Word Length = 8 Bits
-        - One Stop Bit
-        - Parity Odd
-        - Hardware flow control disabled
-        - Receive and transmit enabled
-    */
-	USART_StructInit(&USART_InitStructure);
-    USART_InitStructure.BaudRate = 115200;
-    USART_InitStructure.WordLength          = USART_WL_8B;
-    USART_InitStructure.StopBits            = USART_STPB_1;
-    USART_InitStructure.Parity              = USART_PE_NO;
-    USART_InitStructure.HardwareFlowControl = USART_HFCTRL_NONE;
-    USART_InitStructure.Mode                = USART_MODE_RX | USART_MODE_TX;
-
-    /* Configure and enable the USART1 */
-    USART_COM_Init(&USART_InitStructure);
-}
-
-/**
- * @brief  Configure the USART according to the line coding structure.
- * @return TRUE or FALSE.
- */
-bool USART_Config(void)
-{
-	USART_StructInit(&USART_InitStructure);
-    /* set the Stop bit*/
-    switch (linecoding.format)
-    {
-        case 0:
-            USART_InitStructure.StopBits = USART_STPB_1;
-            break;
-        case 1:
-            USART_InitStructure.StopBits = USART_STPB_1_5;
-            break;
-        case 2:
-            USART_InitStructure.StopBits = USART_STPB_2;
-            break;
-        default :
-            {
-                USART_Config_Default();
-                return (false);
-            }
-    }
-
-    /* set the parity bit*/
-    switch (linecoding.paritytype)
-    {
-        case 0:
-            USART_InitStructure.Parity = USART_PE_NO;
-            break;
-        case 1:
-            USART_InitStructure.Parity = USART_PE_EVEN;
-            break;
-        case 2:
-            USART_InitStructure.Parity = USART_PE_ODD;
-            break;
-        default :
-            {
-                USART_Config_Default();
-                return (false);
-            }
-    }
-
-    /*set the data type : only 8bits and 9bits is supported */
-    switch (linecoding.datatype)
-    {
-        case 0x07:
-            /* With this configuration a parity (Even or Odd) should be set */
-            USART_InitStructure.WordLength = USART_WL_8B;
-            break;
-        case 0x08:
-            if (USART_InitStructure.Parity == USART_PE_NO)
-            {
-                USART_InitStructure.WordLength = USART_WL_8B;
-            }
-        	else 
-            {
-                USART_InitStructure.WordLength = USART_WL_9B;
-            }
-        break;
-        default :
-        {
-            USART_Config_Default();
-            return (false);
-        }
-    }
-
-    USART_InitStructure.BaudRate = linecoding.bitrate;
-    USART_InitStructure.HardwareFlowControl = USART_HFCTRL_NONE;
-    USART_InitStructure.Mode = USART_MODE_RX | USART_MODE_TX;
-
-    /* Configure and enable the USART */
-    USART_COM_Init(&USART_InitStructure);
-
-    return (true);
-}
-
-/**
- * @brief  send the received data from USB to the UART.
- * @param  data_buffer: data buffer pointer.
- * @param  Nb_bytes: data length.
- */
-void USB_To_USART_Send_Data(uint8_t* data_buffer, uint8_t Nb_bytes)
-{
-    uint32_t i;
-
-    for (i = 0; i < Nb_bytes; i++)
-    {
-        USART_SendData(USART1, *(data_buffer + i));
-        while(USART_GetFlagStatus(USART1, USART_FLAG_TXDE) == RESET); 
-    }  
-}
-
-/**
- * @brief  send data to USB.
- */
-void Handle_USBAsynchXfer (void)
-{
-    uint16_t USB_Tx_ptr;
-    uint16_t USB_Tx_length;
-
-    if(USB_Tx_State == 0)
-    {
-        if (USART_Rx_ptr_out == USART_RX_DATA_SIZE)
-        {
-            USART_Rx_ptr_out = 0;
-        }
-
-        if(USART_Rx_ptr_out == USART_Rx_ptr_in) 
-        {
-            USB_Tx_State = 0; 
-            return;
-        }
-        if(USART_Rx_ptr_out > USART_Rx_ptr_in) /* rollback */
-        { 
-            USART_Rx_length = USART_RX_DATA_SIZE - USART_Rx_ptr_out;
-        }
-        else 
-        {
-            USART_Rx_length = USART_Rx_ptr_in - USART_Rx_ptr_out;
-        }
-    
-        if (USART_Rx_length > VIRTUAL_COM_PORT_DATA_SIZE)
-        {
-            USB_Tx_ptr = USART_Rx_ptr_out;
-            USB_Tx_length = VIRTUAL_COM_PORT_DATA_SIZE;
-
-            USART_Rx_ptr_out += VIRTUAL_COM_PORT_DATA_SIZE;
-            USART_Rx_length -= VIRTUAL_COM_PORT_DATA_SIZE;
-            USB_Tx_State = 1; 
-        }
-        else
-        {
-            USB_Tx_ptr = USART_Rx_ptr_out;
-            USB_Tx_length = USART_Rx_length;
-
-            USART_Rx_ptr_out += USART_Rx_length;
-            USART_Rx_length = 0;
-            if(USB_Tx_length == VIRTUAL_COM_PORT_DATA_SIZE)
-            {
-                USB_Tx_State = 2;
-            }
-            else
-            {
-                USB_Tx_State = 1;
-            }
-        }
-        USB_CopyUserToPMABuf(&USART_Rx_Buffer[USB_Tx_ptr], ENDP1_TXADDR, USB_Tx_length);
-        USB_SetEpTxCnt(ENDP1, USB_Tx_length);
-        USB_SetEpTxValid(ENDP1);
-    }
-  
-}
-
-/**
- * @brief  send the received data from UART 0 to USB.
- */
-void USART_To_USB_Send_Data(void)
-{
-    if (linecoding.datatype == 7)
-    {
-        USART_Rx_Buffer[USART_Rx_ptr_in] = USART_ReceiveData(USART1) & 0x7F;
-    }
-    else if (linecoding.datatype == 8)
-    {
-        USART_Rx_Buffer[USART_Rx_ptr_in] = USART_ReceiveData(USART1);
-    }
-
-    USART_Rx_ptr_in++;
-
-    /* To avoid buffer overflow */
-    if(USART_Rx_ptr_in == USART_RX_DATA_SIZE)
-    {
-        USART_Rx_ptr_in = 0;
-    }
 }
 
 /**
