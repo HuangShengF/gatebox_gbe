@@ -65,4 +65,5 @@ typedef struct
 
 uint16_t gb_protocol_crc16(const uint8_t *data, uint16_t len);
 void gb_protocol_process_byte(uint8_t byte);
+void gb_protocol_init(void);
 #endif

@@ -43,6 +43,7 @@
 #include "bsp_ir_example.h"
 #include "n32l40x_rcc.h"
 #include "gb_protocol.h"
+#include "usb_cdc.h"
 __IO uint32_t TimingDelay = 0;
 uint32_t system_clock = 0;
 
@@ -50,18 +51,16 @@ void Delay(__IO uint32_t nCount);
 void Protocol_CrcTest(void)
 {
     static const uint8_t test_data_1[] =
-    {
-        0x31, 0x32, 0x33, 0x34, 0x35,
-        0x36, 0x37, 0x38, 0x39
-    };
+        {
+            0x31, 0x32, 0x33, 0x34, 0x35,
+            0x36, 0x37, 0x38, 0x39};
 
     static const uint8_t test_data_2[] =
-    {
-        0xA5, 0xB3,
-        0x01, 0x00,
-        0x01, 0x00,
-        0x00, 0x00
-    };
+        {
+            0xA5, 0xB3,
+            0x01, 0x00,
+            0x01, 0x00,
+            0x00, 0x00};
 
     uint16_t crc_1;
     uint16_t crc_2;
@@ -107,9 +106,12 @@ static void Clock_Print(void)
 }
 int main(void)
 {
+    uint8_t cdc_rx_data[64];
+    uint16_t cdc_rx_length;
+    uint16_t i;
     system_clock = SYSCLK_VALUE_48MHz;
 
-    if(USB_Config(system_clock) == SUCCESS)
+    if (USB_Config(system_clock) == SUCCESS)
     {
         USB_Init();
 
@@ -123,17 +125,27 @@ int main(void)
     delay_ms(20);
     printf("\r\n");
     Clock_Print();
-    Protocol_CrcTest();
     PIR_ExtiInit();
     // IR_Init();
-    //IR_Start();
-        // 初始化红外模块
+    // IR_Start();
+    // 初始化红外模块
     IR_Init();
+    gb_protocol_init();
     while (1)
     {
         // printf("hello world\n");
         // IR_Example();
         // delay_xms(2000);
+        do
+        {
+            cdc_rx_length =
+                USB_CDC_Read(cdc_rx_data, sizeof(cdc_rx_data));
+
+            for (i = 0; i < cdc_rx_length; i++)
+            {
+                gb_protocol_process_byte(cdc_rx_data[i]);
+            }
+        } while (cdc_rx_length != 0U);
         IR_Poll();
         delay_ms(10);
     }
