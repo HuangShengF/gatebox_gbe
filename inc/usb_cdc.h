@@ -9,8 +9,8 @@ extern "C" {
 #endif
 
 /* The ring capacity is one byte less than the configured buffer size. */
-#define USB_CDC_RX_BUFFER_SIZE 4096U
-#define USB_CDC_TX_BUFFER_SIZE 4096U
+#define USB_CDC_RX_BUFFER_SIZE 2048U
+#define USB_CDC_TX_BUFFER_SIZE 2048U
 
 void USB_CDC_Init(void);
 void USB_CDC_Reset(void);

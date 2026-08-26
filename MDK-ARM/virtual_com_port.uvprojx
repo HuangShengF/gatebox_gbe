@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>N32L40X, USE_STDPERIPH_DRIVER,USE_FULL_ASSERT=1,SYSCLK_SRC=SYSCLK_USE_HSE_PLL,SYSCLK_FREQ=48000000</Define>
               <Undefine></Undefine>
-              <IncludePath>..\inc;..\firmware\CMSIS\core;..\firmware\n32l40x_std_periph_driver\inc;..\firmware\n32l40x_usbfs_driver\inc;..\firmware\CMSIS\device;..\bsp</IncludePath>
+              <IncludePath>..\inc;..\firmware\CMSIS\core;..\firmware\n32l40x_std_periph_driver\inc;..\firmware\n32l40x_usbfs_driver\inc;..\firmware\CMSIS\device;..\bsp;..\protocol</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -652,6 +652,21 @@
               <FileName>bsp_ir_example.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\bsp_ir_example.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>PROTOCOL</GroupName>
+          <Files>
+            <File>
+              <FileName>gb_protocol.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\protocol\gb_protocol.c</FilePath>
+            </File>
+            <File>
+              <FileName>gbe_protocol.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\protocol\gbe_protocol.c</FilePath>
             </File>
           </Files>
         </Group>
