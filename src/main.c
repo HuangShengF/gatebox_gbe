@@ -42,6 +42,7 @@
 #include "bsp_ir.h"
 #include "bsp_ir_example.h"
 #include "n32l40x_rcc.h"
+#include "gbe_protocol.h"
 #include "gb_protocol.h"
 #include "usb_cdc.h"
 __IO uint32_t TimingDelay = 0;
@@ -50,26 +51,26 @@ uint32_t system_clock = 0;
 void Delay(__IO uint32_t nCount);
 void Protocol_CrcTest(void)
 {
-    static const uint8_t test_data_1[] =
-        {
-            0x31, 0x32, 0x33, 0x34, 0x35,
-            0x36, 0x37, 0x38, 0x39};
+   static const uint8_t test_data_1[] =
+       {
+           0x31, 0x32, 0x33, 0x34, 0x35,
+           0x36, 0x37, 0x38, 0x39};
 
-    static const uint8_t test_data_2[] =
-        {
-            0xA5, 0xB3,
-            0x01, 0x00,
-            0x01, 0x00,
-            0x00, 0x00};
+   static const uint8_t test_data_2[] =
+       {
+           0xA5, 0xB3,
+           0x01, 0x00,
+           0x01, 0x00,
+           0x00, 0x00};
 
-    uint16_t crc_1;
-    uint16_t crc_2;
+   uint16_t crc_1;
+   uint16_t crc_2;
 
-    crc_1 = gb_protocol_crc16(test_data_1, sizeof(test_data_1));
-    crc_2 = gb_protocol_crc16(test_data_2, sizeof(test_data_2));
+   crc_1 = gb_protocol_crc16(test_data_1, sizeof(test_data_1));
+   crc_2 = gb_protocol_crc16(test_data_2, sizeof(test_data_2));
 
-    printf("CRC test 1 = %04X\r\n", (unsigned int)crc_1);
-    printf("CRC test 2 = %04X\r\n", (unsigned int)crc_2);
+   printf("CRC test 1 = %04X\r\n", (unsigned int)crc_1);
+   printf("CRC test 2 = %04X\r\n", (unsigned int)crc_2);
 }
 static void Clock_Print(void)
 {
@@ -130,8 +131,8 @@ int main(void)
     // IR_Start();
     // 初始化红外模块
     IR_Init();
-    gb_protocol_init();
-
+    
+    gbe_protocol_init();
     while (1)
     {
         // printf("hello world\n");

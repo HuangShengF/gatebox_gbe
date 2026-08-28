@@ -10,15 +10,26 @@
 #define PROTOCOL_MIN_FRAME      10
 
 // ============ 命令定义 ============
+// 握手
 #define CMD_HANDSHAKE_REQ       0x0001
 #define CMD_HANDSHAKE_RESP      0x1001
 #define CMD_HANDSHAKE_ERR       0x3001
+
+// motion状态查询
+#define CMD_MOTION_REQ        0x0303
+#define CMD_MOTION_RESP       0x1303
+
+// IR红外发送：PC->MCU
+#define CMD_IR_SEND_REQ        0x0402
+#define CMD_IR_SEND_RESP       0x1402
+#define CMD_IR_SEND_ERR        0x3402
 
 // ============ 错误码 ============
 #define ERR_UNSUPPORTED_CMD     0x0001
 #define ERR_INVALID_PAYLOAD     0x0002
 #define ERR_INVALID_PARAM       0x0003
 #define ERR_INVALID_STATE       0x0004
+#define ERR_INTERNAL            0x0006
 #define ERR_PROTOCOL_VERSION    0x0007
 
 // ============ 超时时间 ============
@@ -34,6 +45,8 @@ typedef struct {
     const uint8_t *payload;
     uint16_t crc16;
 } Frame_t;
+
+typedef void (*gb_request_callback_t)(const Frame_t *frame);
 
 
 // ============ 会话状态 ============
@@ -74,4 +87,5 @@ uint16_t gb_protocol_crc16(const uint8_t *data, uint16_t len);
 void gb_protocol_process_byte(uint8_t byte);
 void gb_protocol_init(void);
 uint16_t TIM7_GetMs(void);
+void gb_protocol_register_callback(gb_request_callback_t *callback, uint8_t num);
 #endif

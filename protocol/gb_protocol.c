@@ -4,7 +4,25 @@
 #include "string.h"
 static gb_protocol_rx_t g_ctx;
 
+#define MOTION_CALLBACK_ID 0U
+#define IR_SEND_CALLBACK_ID 1U
+#define CALLBACK_COUNT 2U
+static gb_request_callback_t gbe_callback[CALLBACK_COUNT] = {NULL};
 void TIM7_Configuration(void);
+
+void gb_protocol_register_callback(gb_request_callback_t *callback, uint8_t num)
+{
+    if ((num > 2) || (callback == NULL))
+    {
+        printf("callback num or callback invalid/r/n");
+        return;
+    }
+    for (int i = 0; i < num; i++)
+    {
+        gbe_callback[i] = callback[i];
+    }
+}
+
 uint16_t gb_protocol_crc16(const uint8_t *data, uint16_t len)
 {
     if ((data == NULL) || (len == 0))
@@ -78,7 +96,7 @@ bool Protocol_SendFrame(uint16_t command, uint16_t sequence, const uint8_t *payl
 static void Handle_Handshake(const Frame_t *frame)
 {
 
-    //已握手在次Handshake,建立新的会话
+    // 已握手在次Handshake,建立新的会话
     g_ctx.session_state = SESSION_AWAITING_HANDSHAKE;
 
     if (frame->payload_size != 8)
@@ -160,14 +178,24 @@ static void Handle_Handshake(const Frame_t *frame)
 static void Handle_Frame(const Frame_t *frame)
 {
 
-    // 根据command 处理
+    // 根据command 处理:这些都是主机发来的request
     switch (frame->command)
     {
     case CMD_HANDSHAKE_REQ:
         // PC端发送的握手帧，需要给它回应
         Handle_Handshake(frame);
         break;
-
+    case CMD_MOTION_REQ:
+        // 查询运动传感器状态,使用回调
+        if(gbe_callback[MOTION_CALLBACK_ID] == NULL) return;
+       
+        gbe_callback[MOTION_CALLBACK_ID](frame);
+        break;
+    case CMD_IR_SEND_REQ:
+        // 使用回调
+        if(gbe_callback[IR_SEND_CALLBACK_ID] == NULL) return;
+        gbe_callback[IR_SEND_CALLBACK_ID](frame);
+        break;
     default:
         // 未知命令
         if ((frame->command & 0xF000) == 0x0000)
@@ -285,7 +313,7 @@ void gb_protocol_process_byte(uint8_t byte)
                 g_ctx.rx_frame.crc16 = recv_crc;
 
                 // 未握手时，非Handshake Request返回Invalid State
-                if ((g_ctx.session_state != SESSION_ESTABLISHED) && (g_ctx.rx_frame.command != CMD_HANDSHAKE_REQ) && 
+                if ((g_ctx.session_state != SESSION_ESTABLISHED) && (g_ctx.rx_frame.command != CMD_HANDSHAKE_REQ) &&
                     (g_ctx.rx_frame.command & 0xF000) == 0x0000)
                 {
                     // 只回复主机非Handshake Request，对Response/Error 不会回
