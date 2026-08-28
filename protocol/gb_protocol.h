@@ -21,6 +21,9 @@
 #define ERR_INVALID_STATE       0x0004
 #define ERR_PROTOCOL_VERSION    0x0007
 
+// ============ 超时时间 ============
+#define PROTOCOL_INTER_BYTE_TIMEOUT_MS  100U
+#define PROTOCOL_FRAME_TIMEOUT_MS       500U
 
 // ============ 帧结构 ============
 typedef struct {
@@ -50,6 +53,10 @@ typedef enum {
 
 typedef struct
 {
+    // 超时
+    uint16_t last_byte_time;
+    uint16_t last_frame_time;
+
     SessionState_t session_state;
     uint16_t notification_seq;
     uint8_t protocol_major;
@@ -66,4 +73,5 @@ typedef struct
 uint16_t gb_protocol_crc16(const uint8_t *data, uint16_t len);
 void gb_protocol_process_byte(uint8_t byte);
 void gb_protocol_init(void);
+uint16_t TIM7_GetMs(void);
 #endif

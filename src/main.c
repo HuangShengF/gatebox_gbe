@@ -131,6 +131,7 @@ int main(void)
     // 初始化红外模块
     IR_Init();
     gb_protocol_init();
+
     while (1)
     {
         // printf("hello world\n");

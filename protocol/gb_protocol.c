@@ -3,6 +3,8 @@
 #include "stdlib.h"
 #include "string.h"
 static gb_protocol_rx_t g_ctx;
+
+void TIM7_Configuration(void);
 uint16_t gb_protocol_crc16(const uint8_t *data, uint16_t len)
 {
     if ((data == NULL) || (len == 0))
@@ -32,6 +34,7 @@ uint16_t gb_protocol_crc16(const uint8_t *data, uint16_t len)
 // 协议初始化
 void gb_protocol_init(void)
 {
+    TIM7_Configuration();
     g_ctx.state = RX_STATE_IDLE;
     g_ctx.index = 0;
     g_ctx.rx_payload_size = 0;
@@ -39,6 +42,8 @@ void gb_protocol_init(void)
     g_ctx.notification_seq = 1;
     g_ctx.protocol_major = 1;
     g_ctx.protocol_minor = 0;
+    g_ctx.last_byte_time = 0;
+    g_ctx.last_frame_time = 0;
 }
 
 // ============ 发送帧 ============
@@ -72,7 +77,12 @@ bool Protocol_SendFrame(uint16_t command, uint16_t sequence, const uint8_t *payl
 // ============ 处理握手请求 ============
 static void Handle_Handshake(const Frame_t *frame)
 {
-    if(frame->payload_size != 8){
+
+    //已握手在次Handshake,建立新的会话
+    g_ctx.session_state = SESSION_AWAITING_HANDSHAKE;
+
+    if (frame->payload_size != 8)
+    {
         // 不是8字节
         uint8_t err_payload[4];
         err_payload[0] = ERR_INVALID_PAYLOAD & 0xFF;
@@ -86,6 +96,8 @@ static void Handle_Handshake(const Frame_t *frame)
     uint8_t host_major = frame->payload[0];
     uint8_t host_minor = frame->payload[1];
     uint16_t host_max_payload = frame->payload[2] | (frame->payload[3] << 8);
+    printf("host vision: %d.%d, host_max_payload:%d\n", host_major, host_minor, host_max_payload);
+
     // 检查版本
     if (host_major != 1)
     {
@@ -136,18 +148,18 @@ static void Handle_Handshake(const Frame_t *frame)
 
     // 发送响应
     bool ret = Protocol_SendFrame(CMD_HANDSHAKE_RESP, frame->sequence, resp, 58);
-    if(ret)
+    if (ret)
     {
         // 切换到已建立状态
         g_ctx.session_state = SESSION_ESTABLISHED;
         g_ctx.notification_seq = 1; // 重置通知序列号
     }
-
 }
 
 // ============ 处理接收到的完整帧 ============
 static void Handle_Frame(const Frame_t *frame)
 {
+
     // 根据command 处理
     switch (frame->command)
     {
@@ -175,6 +187,22 @@ static void Handle_Frame(const Frame_t *frame)
 // 接受状态机
 void gb_protocol_process_byte(uint8_t byte)
 {
+    uint16_t current_time = TIM7_GetMs();
+    // 字节间超时
+    if ((uint16_t)(current_time - g_ctx.last_byte_time) > PROTOCOL_INTER_BYTE_TIMEOUT_MS)
+    {
+        g_ctx.index = 0;
+        g_ctx.state = RX_STATE_IDLE;
+    }
+    g_ctx.last_byte_time = current_time;
+
+    // 帧完成超时，也就是一帧必须在500ms内完成
+    if ((uint16_t)(current_time - g_ctx.last_frame_time) > PROTOCOL_FRAME_TIMEOUT_MS)
+    {
+        g_ctx.index = 0;
+        g_ctx.state = RX_STATE_IDLE;
+    }
+
     switch (g_ctx.state)
     {
     case RX_STATE_IDLE:
@@ -182,11 +210,21 @@ void gb_protocol_process_byte(uint8_t byte)
         if (g_ctx.index == 0 && byte == (PROTOCOL_MAGIC & 0xFF))
         {
             g_ctx.rx_buf[g_ctx.index++] = byte;
+            // 帧开始时间
+            g_ctx.last_frame_time = current_time;
         }
         else if (g_ctx.index == 1 && byte == (PROTOCOL_MAGIC >> 8))
         {
             g_ctx.rx_buf[g_ctx.index++] = byte;
             g_ctx.state = RX_STATE_HEADER;
+        }
+        else if (g_ctx.index == 1 && byte == (PROTOCOL_MAGIC & 0xFF))
+        {
+            /* A5 A5：保留最后一个A5作为新Magic起点 */
+            g_ctx.rx_buf[0] = byte;
+            g_ctx.index = 1;
+            // 帧开始时间
+            g_ctx.last_frame_time = current_time;
         }
         else
         {
@@ -246,6 +284,24 @@ void gb_protocol_process_byte(uint8_t byte)
                 g_ctx.rx_frame.payload = &g_ctx.rx_buf[8];
                 g_ctx.rx_frame.crc16 = recv_crc;
 
+                // 未握手时，非Handshake Request返回Invalid State
+                if ((g_ctx.session_state != SESSION_ESTABLISHED) && (g_ctx.rx_frame.command != CMD_HANDSHAKE_REQ) && 
+                    (g_ctx.rx_frame.command & 0xF000) == 0x0000)
+                {
+                    // 只回复主机非Handshake Request，对Response/Error 不会回
+                    uint8_t err_payload[4];
+                    err_payload[0] = ERR_INVALID_STATE & 0xFF;
+                    err_payload[1] = (ERR_INVALID_STATE >> 8) & 0xFF;
+                    err_payload[2] = 0;
+                    err_payload[3] = 0;
+                    uint16_t err_cmd = (g_ctx.rx_frame.command & 0x0FFF) | 0x3000;
+                    Protocol_SendFrame(err_cmd, g_ctx.rx_frame.sequence, err_payload, 4);
+                    // 重置状态机
+                    g_ctx.state = RX_STATE_IDLE;
+                    g_ctx.index = 0;
+                    return;
+                }
+
                 // 处理帧
                 Handle_Frame(&g_ctx.rx_frame);
             }
@@ -262,4 +318,25 @@ void gb_protocol_process_byte(uint8_t byte)
         g_ctx.index = 0;
         break;
     }
+}
+
+void TIM7_Configuration(void)
+{
+    TIM_TimeBaseInitType TIM_TimeBaseStructure;
+    RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_TIM7, ENABLE);
+    /* Time base configuration */
+    TIM_InitTimBaseStruct(&TIM_TimeBaseStructure);
+    TIM_TimeBaseStructure.Period = 65535;
+    TIM_TimeBaseStructure.Prescaler = 24000 - 1;
+    TIM_TimeBaseStructure.ClkDiv = 0;
+    TIM_TimeBaseStructure.CntMode = TIM_CNT_MODE_UP;
+
+    TIM_InitTimeBase(TIM7, &TIM_TimeBaseStructure);
+    TIM_SetCnt(TIM7, 0U);
+    /* TIM7 enable counter */
+    TIM_Enable(TIM7, ENABLE);
+}
+uint16_t TIM7_GetMs(void)
+{
+    return TIM_GetCnt(TIM7);
 }
