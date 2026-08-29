@@ -41,17 +41,37 @@
 #include "bsp_pir.h"
 #include "bsp_ir.h"
 #include "bsp_ir_example.h"
+#include "n32l40x_rcc.h"
+#include "gbe_protocol.h"
+#include "gb_protocol.h"
+#include "usb_cdc.h"
 __IO uint32_t TimingDelay = 0;
 uint32_t system_clock = 0;
 
-/** @addtogroup DAC_OneChanneloutputNoiseWave
- * @{
- */
-
 void Delay(__IO uint32_t nCount);
+void Protocol_CrcTest(void)
+{
+   static const uint8_t test_data_1[] =
+       {
+           0x31, 0x32, 0x33, 0x34, 0x35,
+           0x36, 0x37, 0x38, 0x39};
 
-#include "n32l40x_rcc.h"
+   static const uint8_t test_data_2[] =
+       {
+           0xA5, 0xB3,
+           0x01, 0x00,
+           0x01, 0x00,
+           0x00, 0x00};
 
+   uint16_t crc_1;
+   uint16_t crc_2;
+
+   crc_1 = gb_protocol_crc16(test_data_1, sizeof(test_data_1));
+   crc_2 = gb_protocol_crc16(test_data_2, sizeof(test_data_2));
+
+   printf("CRC test 1 = %04X\r\n", (unsigned int)crc_1);
+   printf("CRC test 2 = %04X\r\n", (unsigned int)crc_2);
+}
 static void Clock_Print(void)
 {
     RCC_ClocksType clocks;
@@ -87,9 +107,12 @@ static void Clock_Print(void)
 }
 int main(void)
 {
+    uint8_t cdc_rx_data[64];
+    uint16_t cdc_rx_length;
+    uint16_t i;
     system_clock = SYSCLK_VALUE_48MHz;
 
-    if(USB_Config(system_clock) == SUCCESS)
+    if (USB_Config(system_clock) == SUCCESS)
     {
         USB_Init();
 
@@ -104,15 +127,27 @@ int main(void)
     printf("\r\n");
     Clock_Print();
     PIR_ExtiInit();
+    // IR_Init();
+    // IR_Start();
+    // 初始化红外模块
     IR_Init();
-    //IR_Start();
-        // 初始化红外模块
-    IR_Init();
+    
+    gbe_protocol_init();
     while (1)
     {
         // printf("hello world\n");
         // IR_Example();
         // delay_xms(2000);
+        do
+        {
+            cdc_rx_length =
+                USB_CDC_Read(cdc_rx_data, sizeof(cdc_rx_data));
+
+            for (i = 0; i < cdc_rx_length; i++)
+            {
+                gb_protocol_process_byte(cdc_rx_data[i]);
+            }
+        } while (cdc_rx_length != 0U);
         IR_Poll();
         delay_ms(10);
     }
