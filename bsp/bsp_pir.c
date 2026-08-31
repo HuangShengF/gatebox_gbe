@@ -1,7 +1,10 @@
 #include "bsp_pir.h"
 
 #define PIR_PORT              GPIOA
-#define PIR_PIN               (GPIO_PIN_3 | GPIO_PIN_7)
+/* 左右引脚映射需要结合原理图或实机方向确认 */
+#define PIR_LEFT_PIN          GPIO_PIN_3
+#define PIR_RIGHT_PIN         GPIO_PIN_7
+#define PIR_PIN               (PIR_LEFT_PIN | PIR_RIGHT_PIN)
 #define PIR_PORT_SOURCE       GPIOA_PORT_SOURCE
 
 void PIR_ExtiInit(void)
@@ -24,7 +27,7 @@ void PIR_ExtiInit(void)
     EXTI_ClrITPendBit(EXTI_LINE3 | EXTI_LINE7);
     EXTI_InitStructure.EXTI_Line    = EXTI_LINE3 | EXTI_LINE7;
     EXTI_InitStructure.EXTI_Mode    = EXTI_Mode_Interrupt;
-    EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising;
+    EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising_Falling; // 双边沿触发
     EXTI_InitStructure.EXTI_LineCmd = ENABLE;
     EXTI_InitPeripheral(&EXTI_InitStructure);
 
@@ -36,4 +39,16 @@ void PIR_ExtiInit(void)
 
     NVIC_InitStructure.NVIC_IRQChannel = EXTI9_5_IRQn;
     NVIC_Init(&NVIC_InitStructure);
+}
+
+void PIR_GetStates(uint8_t *left_state, uint8_t *right_state)
+{
+ 
+    if ((left_state == NULL) || (right_state == NULL))
+    {
+        return;
+    }
+
+    *left_state = GPIO_ReadInputDataBit(PIR_PORT, PIR_LEFT_PIN);
+    *right_state = GPIO_ReadInputDataBit(PIR_PORT, PIR_RIGHT_PIN);
 }

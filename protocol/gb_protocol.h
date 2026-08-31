@@ -24,6 +24,9 @@
 #define CMD_IR_SEND_RESP       0x1402
 #define CMD_IR_SEND_ERR        0x3402
 
+// 环境光通知：MCU -> PC
+#define CMD_AMBIENT_LIGHT_NOTIFY    0x2301
+
 // ============ 错误码 ============
 #define ERR_UNSUPPORTED_CMD     0x0001
 #define ERR_INVALID_PAYLOAD     0x0002
@@ -83,9 +86,14 @@ typedef struct
 } gb_protocol_rx_t;
 
 
+
+bool gb_protocol_send_notification(uint16_t command,const uint8_t *payload, uint16_t payload_len);
 uint16_t gb_protocol_crc16(const uint8_t *data, uint16_t len);
 void gb_protocol_process_byte(uint8_t byte);
 void gb_protocol_init(void);
 uint16_t TIM7_GetMs(void);
+bool Protocol_SendFrame(uint16_t command, uint16_t sequence, const uint8_t *payload, uint16_t payload_len);
 void gb_protocol_register_callback(gb_request_callback_t *callback, uint8_t num);
+bool gb_protocol_send_response(const Frame_t *request, const uint8_t *payload, uint16_t payload_len);
+bool gb_protocol_send_error(const Frame_t *request, uint16_t error_code, uint16_t detail);
 #endif

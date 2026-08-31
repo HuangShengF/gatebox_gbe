@@ -91,6 +91,71 @@ bool Protocol_SendFrame(uint16_t command, uint16_t sequence, const uint8_t *payl
     return USB_CDC_Write(tx_buf, 8 + payload_len + 2);
     // USB_SilWrite(EP1_IN, tx_buf, total_len);
 }
+bool gb_protocol_send_notification(uint16_t command,const uint8_t *payload,uint16_t payload_len)
+{
+    uint16_t sequence;
+
+    if ((payload_len != 0U) && (payload == NULL))
+    {
+        return false;
+    }
+
+    // 未完成握手，不允许发送普通Notification
+    if (g_ctx.session_state != SESSION_ESTABLISHED)
+    {
+        return false;
+    }
+
+    sequence = g_ctx.notification_seq;
+    bool ret = Protocol_SendFrame(command, sequence, payload, payload_len);
+    if(!ret)
+    {
+        // 如果通知不成功，sequence不增加
+        return false;
+    }
+
+
+    g_ctx.notification_seq++;
+    if (g_ctx.notification_seq == 0U)
+    {
+        // 0保留，0xFFFF之后回到1
+        g_ctx.notification_seq = 1U;
+    }
+
+    return true;
+}
+
+bool gb_protocol_send_response(const Frame_t *request, const uint8_t *payload, uint16_t payload_len)
+{
+    uint16_t response_cmd;
+
+    if ((request == NULL) || ((payload_len != 0U) && (payload == NULL)))
+    {
+        return false;
+    }
+
+    response_cmd = (request->command & 0x0FFFU) | 0x1000U;
+    return Protocol_SendFrame(response_cmd, request->sequence, payload, payload_len);
+}
+
+bool gb_protocol_send_error(const Frame_t *request, uint16_t error_code, uint16_t detail)
+{
+    uint8_t err_payload[4];
+    uint16_t error_cmd;
+
+    if (request == NULL)
+    {
+        return false;
+    }
+
+    err_payload[0] = (uint8_t)(error_code & 0xFFU);
+    err_payload[1] = (uint8_t)((error_code >> 8) & 0xFFU);
+    err_payload[2] = (uint8_t)(detail & 0xFFU);
+    err_payload[3] = (uint8_t)((detail >> 8) & 0xFFU);
+    error_cmd = (request->command & 0x0FFFU) | 0x3000U;
+
+    return Protocol_SendFrame(error_cmd, request->sequence, err_payload, sizeof(err_payload));
+}
 
 // ============ 处理握手请求 ============
 static void Handle_Handshake(const Frame_t *frame)
