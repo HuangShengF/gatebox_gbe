@@ -91,7 +91,7 @@ bool Protocol_SendFrame(uint16_t command, uint16_t sequence, const uint8_t *payl
     return USB_CDC_Write(tx_buf, 8 + payload_len + 2);
     // USB_SilWrite(EP1_IN, tx_buf, total_len);
 }
-bool gb_protocol_send_notification(uint16_t command,const uint8_t *payload,uint16_t payload_len)
+bool gb_protocol_send_notification(uint16_t command, const uint8_t *payload, uint16_t payload_len)
 {
     uint16_t sequence;
 
@@ -110,6 +110,7 @@ bool gb_protocol_send_notification(uint16_t command,const uint8_t *payload,uint1
     bool ret = Protocol_SendFrame(command, sequence, payload, payload_len);
     if(!ret)
     {
+        printf("[GB] Send Notification Failed\n");
         // 如果通知不成功，sequence不增加
         return false;
     }
@@ -118,6 +119,7 @@ bool gb_protocol_send_notification(uint16_t command,const uint8_t *payload,uint1
     g_ctx.notification_seq++;
     if (g_ctx.notification_seq == 0U)
     {
+        printf("[GB] Notification Sequence Overflow\n");
         // 0保留，0xFFFF之后回到1
         g_ctx.notification_seq = 1U;
     }

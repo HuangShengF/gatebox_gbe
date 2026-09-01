@@ -7,6 +7,10 @@
 #define PIR_PIN               (PIR_LEFT_PIN | PIR_RIGHT_PIN)
 #define PIR_PORT_SOURCE       GPIOA_PORT_SOURCE
 
+
+static volatile uint8_t g_pir_changed_flags = 0U;
+static volatile uint8_t g_pir_left_snapshot = 0U;
+static volatile uint8_t g_pir_right_snapshot = 0U;
 void PIR_ExtiInit(void)
 {
     GPIO_InitType GPIO_InitStructure;
@@ -51,4 +55,39 @@ void PIR_GetStates(uint8_t *left_state, uint8_t *right_state)
 
     *left_state = GPIO_ReadInputDataBit(PIR_PORT, PIR_LEFT_PIN);
     *right_state = GPIO_ReadInputDataBit(PIR_PORT, PIR_RIGHT_PIN);
+}
+
+void PIR_RecordChangeFromISR(uint8_t flags)
+{
+    g_pir_left_snapshot =(uint8_t)GPIO_ReadInputDataBit(PIR_PORT, PIR_LEFT_PIN);
+
+    g_pir_right_snapshot =(uint8_t)GPIO_ReadInputDataBit(PIR_PORT, PIR_RIGHT_PIN);
+
+    g_pir_changed_flags |= flags;
+}
+uint8_t PIR_TakeEvent(uint8_t *flags,uint8_t *left,uint8_t *right)
+{
+    if(flags == NULL || left == NULL || right == NULL)
+    return 0;
+
+    if(g_pir_changed_flags == 0U)
+    return 0;
+
+    uint32_t primask;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+
+    *flags = g_pir_changed_flags;
+    *left = g_pir_left_snapshot;
+    *right = g_pir_right_snapshot;
+
+    g_pir_changed_flags = 0U;
+
+    if (primask == 0U)
+    {
+        __enable_irq();
+    }
+
+    return 1U;
 }

@@ -26,6 +26,7 @@
 
 // 环境光通知：MCU -> PC
 #define CMD_AMBIENT_LIGHT_NOTIFY    0x2301
+#define CMD_MOTION_NOTIFY           0x2302
 
 // ============ 错误码 ============
 #define ERR_UNSUPPORTED_CMD     0x0001

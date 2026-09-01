@@ -2,7 +2,7 @@
 
 #include "n32l40x.h"
 #include "n32l40x_i2c.h"
-
+#include "log.h"
 #define I2CT_FLAG_TIMEOUT ((uint32_t)0x1000)
 #define I2CT_LONG_TIMEOUT ((uint32_t)(10 * I2CT_FLAG_TIMEOUT))
 #define I2C_MASTER_ADDR 0x30
@@ -136,11 +136,16 @@ int8_t LTR329_Init(uint8_t gain, uint8_t int_time, uint8_t meas_rate)
     // 检查ID,器件是否存在
     if (LTR329_ReadRegs(LTR329_REG_MANUFAC_ID, &id, 1) != 0)
     {
+        log_error("LTR329: ID error");
         return LTR329_ERR_I2C;
     }
     if (id != 0x05)
     {
         return LTR329_ERR_ID;
+    }
+    else if(id == 0x05)
+    {
+        printf("LTR329_ID is 0x05");
     }
 
     if (LTR329_WriteReg(LTR329_REG_MEAS_RATE, meas_rate | int_time) != 0)
@@ -168,6 +173,7 @@ uint8_t LTR329_ReadRawData(uint16_t *ch0, uint16_t *ch1)
 
     if (LTR329_ReadRegs(LTR329_REG_STATUS, &status, 1) != 0)
     {
+        printf("LTR329 read STATUS failed\r\n");
         return LTR329_ERR_I2C;
     }
     if ((status & LTR329_STATUS_DATA_INVALID) != 0)
@@ -181,6 +187,7 @@ uint8_t LTR329_ReadRawData(uint16_t *ch0, uint16_t *ch1)
 
     if (LTR329_ReadRegs(LTR329_REG_DATA_CH1_0, buf, 4) != 0)
     {
+         printf("LTR329 read DATA 4 bytes failed\r\n");
         return LTR329_ERR_I2C;
     }
 
@@ -284,6 +291,7 @@ int LTR329_ReadRegs(uint8_t reg, uint8_t *data, uint16_t len)
     {
         if ((I2CTimeout--) == 0)
         {
+           printf("I2C BUSY BEFORE START, SCL=%u SDA=%u\r\n",GPIO_ReadInputDataBit(GPIOB, GPIO_PIN_6),GPIO_ReadInputDataBit(GPIOB, GPIO_PIN_7));
             errcode = MASTER_BUSY;
             goto read_error;
         }
@@ -441,6 +449,8 @@ int LTR329_ReadRegs(uint8_t reg, uint8_t *data, uint16_t len)
          */
         GPIO_ResetBits(GPIOx, I2Cx_SCL_PIN);
         LTR329_ConfigSclMode(GPIO_Mode_Out_OD);
+        GPIO_ResetBits(GPIOx, I2Cx_SCL_PIN);
+
         I2C_GenerateStop(I2C1, ENABLE);
         *data++ = I2C_RecvData(I2C1);
         LTR329_ConfigSclMode(GPIO_Mode_AF_OD);
@@ -452,6 +462,9 @@ int LTR329_ReadRegs(uint8_t reg, uint8_t *data, uint16_t len)
     {
         if ((I2CTimeout--) == 0)
         {
+           printf("I2C BUSY AFTER STOP, SCL=%u SDA=%u\r\n",
+           GPIO_ReadInputDataBit(GPIOB, GPIO_PIN_6),
+           GPIO_ReadInputDataBit(GPIOB, GPIO_PIN_7));
             errcode = MASTER_BUSY;
             goto read_error;
         }
@@ -791,6 +804,7 @@ int i2c_master_recv(uint8_t *data, int len)
 
 static void CommTimeOut_CallBack(ErrCode_t errcode)
 {
+    printf("CommTimeOut_CallBack: %d\n", errcode);
     (void)errcode;
 
     if (I2C_GetFlag(I2C1, I2C_FLAG_MSMODE))
@@ -809,6 +823,15 @@ static void CommTimeOut_CallBack(ErrCode_t errcode)
 
 static void LTR329_ConfigSclMode(GPIO_ModeType mode)
 {
+    // GPIO_InitType gpio;
+
+    // GPIO_InitStruct(&gpio);
+    // gpio.Pin = I2Cx_SCL_PIN;
+    // gpio.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
+    // gpio.GPIO_Mode = mode;
+    // gpio.GPIO_Alternate = GPIO_AF1_I2C1;
+    // gpio.GPIO_Pull = GPIO_Pull_Up;
+    // GPIO_InitPeripheral(GPIOx, &gpio);
     GPIO_InitType gpio;
 
     GPIO_InitStruct(&gpio);
@@ -816,6 +839,15 @@ static void LTR329_ConfigSclMode(GPIO_ModeType mode)
     gpio.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
     gpio.GPIO_Mode = mode;
     gpio.GPIO_Alternate = GPIO_AF1_I2C1;
-    gpio.GPIO_Pull = GPIO_Pull_Up;
+
+    if (mode == GPIO_Mode_Out_OD)
+    {
+        gpio.GPIO_Pull = GPIO_No_Pull;
+    }
+    else
+    {
+        gpio.GPIO_Pull = GPIO_Pull_Up;
+    }
+
     GPIO_InitPeripheral(GPIOx, &gpio);
 }

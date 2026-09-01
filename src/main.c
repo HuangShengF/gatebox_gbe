@@ -123,7 +123,15 @@ int main(void)
     }
     log_init();
     delay_init();
-    LTR329_Init(LTR329_GAIN_1X, LTR329_INT_100MS, LTR329_RATE_500MS);
+    int ret = LTR329_Init(LTR329_GAIN_1X, LTR329_INT_100MS, LTR329_RATE_200MS);
+    if(ret != LTR329_OK)
+    {
+        printf("LTR329_Init error %d\r\n", ret);
+    }
+    else 
+    {
+        printf("LTR329_Init ok\r\n");
+    }
 
     delay_ms(20);
     printf("\r\n");
@@ -135,40 +143,52 @@ int main(void)
     IR_Init();
 
     gbe_protocol_init();
-    uint8_t pir_left_state = 0, pir_right_state = 0;
-    uint16_t ch0 = 0, ch1 = 0;
-    uint8_t left;
-    uint8_t right;
-    uint8_t last_left = 0xFF;
-    uint8_t last_right = 0xFF;
+    // uint8_t pir_left_state = 0, pir_right_state = 0;
+    // uint16_t ch0 = 0, ch1 = 0;
+    // uint8_t left;
+    // uint8_t right;
+    // uint8_t last_left = 0xFF;
+    // uint8_t last_right = 0xFF;
+    float lux;
     while (1)
     {
         // printf("hello world\n");
         // IR_Example();
         // delay_xms(2000);
-        // do
-        // {
-        //     cdc_rx_length =
-        //         USB_CDC_Read(cdc_rx_data, sizeof(cdc_rx_data));
+        do
+        {
+            cdc_rx_length =
+                USB_CDC_Read(cdc_rx_data, sizeof(cdc_rx_data));
 
-        //     for (i = 0; i < cdc_rx_length; i++)
-        //     {
-        //         gb_protocol_process_byte(cdc_rx_data[i]);
-        //     }
-        // } while (cdc_rx_length != 0U);
+            for (i = 0; i < cdc_rx_length; i++)
+            {
+                gb_protocol_process_byte(cdc_rx_data[i]);
+            }
+        } while (cdc_rx_length != 0U);
+        // int ret = LTR329_CalculateLux(LTR329_GAIN_1X, LTR329_INT_100MS, 1.0, &lux);
+        // if(ret == LTR329_OK)
+        // {
+        //     printf("lux: %f\n");
+        // }
+        // else 
+        // {
+        //     printf("error: %d\n", ret);
+        // }
+        
+        gbe_protocol_poll();
         // IR_Poll();
 
         // delay_ms(10);
-        PIR_GetStates(&left, &right);
-        printf(" left=%d, right=%d\r\n", left, right);
-        if ((left != last_left) || (right != last_right))
-        {
-            printf("PIR raw: left=%d, right=%d\r\n", left, right);
-            last_left = left;
-            last_right = right;
-        }
+        // PIR_GetStates(&left, &right);
+        // printf(" left=%d, right=%d\r\n", left, right);
+        // if ((left != last_left) || (right != last_right))
+        // {
+        //     printf("PIR raw: left=%d, right=%d\r\n", left, right);
+        //     last_left = left;
+        //     last_right = right;
+        // }
 
-        delay_ms(10);
+         delay_ms(500);
     }
 }
 

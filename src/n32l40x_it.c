@@ -36,6 +36,7 @@
 #include "n32l40x.h"
 #include "main.h"
 #include "usb_istr.h"
+#include "bsp_pir.h"
 /** @addtogroup N32L40X_StdPeriph_Template
  * @{
  */
@@ -144,8 +145,10 @@ void EXTI3_IRQHandler(void)
 {
     if (EXTI_GetITStatus(EXTI_LINE3) != RESET)
     {
+
         /* Clear the EXTI line 3 pending bit */
         EXTI_ClrITPendBit(EXTI_LINE3);
+        PIR_RecordChangeFromISR(PIR_CHANGED_LEFT);
     }
 }
 
@@ -153,8 +156,10 @@ void EXTI9_5_IRQHandler(void)
 {
     if (EXTI_GetITStatus(EXTI_LINE7) != RESET)
     {
+
         /* Clear the EXTI line 7 pending bit */
         EXTI_ClrITPendBit(EXTI_LINE7);
+        PIR_RecordChangeFromISR(PIR_CHANGED_RIGHT);
     }
 }
 

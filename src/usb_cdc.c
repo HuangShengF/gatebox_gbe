@@ -1,5 +1,5 @@
 #include "usb_cdc.h"
-
+#include "log.h"
 #include "n32l40x.h"
 #include "usb_conf.h"
 #include "usb_desc.h"
@@ -245,12 +245,14 @@ bool USB_CDC_Write(const uint8_t* data, uint16_t length)
     }
     if ((data == 0) || (bDeviceState != CONFIGURED))
     {
+        printf("USB_CDC_Write: Invalid parameters\n");
         return false;
     }
 
     generation = cdc_reset_generation;
     if (USB_CDC_TxFree() < length)
     {
+        printf("USB_CDC_Write: buffer full\n");
         return false;
     }
 
