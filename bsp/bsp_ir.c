@@ -20,12 +20,12 @@ static IR_Control_t ir_ctrl = {
     .current_bit = 0,
     .is_sending = 0};
 
+/**************接受中断保存raw data 到数组 *********/ 
 typedef struct
 {
     uint16_t mark;
     uint16_t space;
 } IR_data_t;
-
 typedef struct
 {
     IR_data_t *data;
@@ -35,6 +35,7 @@ typedef struct
     volatile bool capture_complete;
 } IR_RxFrame_t;
 
+/**********解码******************** */
 typedef struct
 {
     IR_Protocol_t protocol;
@@ -48,7 +49,7 @@ IR_Decoded_t ir_decoded = {
 
 // 用于判断最短帧
 #define IR_MIN_PAIRS 12
-#define IR_MAX_EDGES 400
+#define IR_MAX_EDGES 1281   // 这是支持一帧最多多少个bit；；AEHA最长可达1280
 static IR_data_t ir_buffer[IR_MAX_EDGES]; // 静态分配
 
 IR_RxFrame_t ir_cap = {
@@ -74,7 +75,7 @@ void IR_PWM_Init(void)
     GPIO_InitStruct(&GPIO_InitStructure);
     GPIO_InitStructure.Pin = GPIO_PIN_2;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_InitStructure.GPIO_Current = GPIO_DC_4mA;
+    GPIO_InitStructure.GPIO_Current = GPIO_DC_12mA;
     GPIO_InitStructure.GPIO_Alternate = GPIO_AF2_TIM2;
     GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
     GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
@@ -93,7 +94,7 @@ void IR_PWM_Init(void)
     TIM_InitOcStruct(&TIM_OCInitStructure);
     TIM_OCInitStructure.OcMode = TIM_OCMODE_PWM1;
     TIM_OCInitStructure.OutputState = TIM_OUTPUT_STATE_DISABLE;
-    TIM_OCInitStructure.Pulse = 211;
+    TIM_OCInitStructure.Pulse = (631 * 1) / 3;
     TIM_OCInitStructure.OcPolarity = TIM_OC_POLARITY_HIGH;
     TIM_InitOc3(TIM2, &TIM_OCInitStructure);
 
@@ -202,8 +203,8 @@ void IR_Init(void)
 
 void IR_Start(void)
 {
-    // 设置CCR为1/3占空比，PWM输出载波
-    TIM2->CCDAT3 = TIM2->AR / 3;
+    // 设置CCR为1/2占空比，提高Mark期间的平均发射功率
+    TIM2->CCDAT3 = (TIM2->AR + 1U) / 3; 
     // 使能CH3输出
     TIM_EnableCapCmpCh(TIM2, TIM_CH_3, TIM_CAP_CMP_ENABLE);
 }
@@ -245,14 +246,17 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
     if (protocol == IR_PROTOCOL_SONY)
     {
         // Sony: 40kHz, 24MHz / 600 = 40kHz
-        TIM2->AR = 599;
-        TIM2->CCDAT3 = 200; // 1/3 占空比
+        TIM2->AR = 600;
+        //TIM2->CCDAT3 = 300; // 1/2 占空比
+        // TIM2->CCDAT3 = 200; // 1/2 占空比
+        TIM2->CCDAT3 = (TIM2->AR + 1U)  / 3;
     }
     else
     {
         // NEC/AEHA: 38kHz, 24MHz / 632 = 37.97kHz
         TIM2->AR = 631;
-        TIM2->CCDAT3 = 211;
+        // TIM2->CCDAT3 = 211;
+        TIM2->CCDAT3 = (TIM2->AR + 1U)  / 3;
     }
 
     uint16_t start_mark_time = 0;
@@ -275,10 +279,15 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
     IR_Start();
 }
 
-/* 误差是否落在 center±25% 内 */
+#define IR_TIMING_TOLERANCE_PERCENT 35U
+
+/* 误差是否落在设定范围内 */
 static uint8_t IR_IsNear(uint16_t val, uint16_t center)
 {
-    return (val >= (uint32_t)center * 3 / 4) && (val <= (uint32_t)center * 5 / 4);
+    uint32_t lower = (uint32_t)center * (100U - IR_TIMING_TOLERANCE_PERCENT) / 100U;
+    uint32_t upper = (uint32_t)center * (100U + IR_TIMING_TOLERANCE_PERCENT) / 100U;
+
+    return ((uint32_t)val >= lower) && ((uint32_t)val <= upper);
 }
 IR_DecodeErr_t IR_DecodeFrame(void)
 {
@@ -409,7 +418,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
 
         case IR_PROTOCOL_UNKNOWN:
         {
-            
+            // 不解码，
         }
 
     }
@@ -526,6 +535,7 @@ void TIM5_IRQHandler(void)
 }
 
 /* TIM6中断处理 - 状态机 */
+// 发射状态机
 void TIM6_IRQHandler(void)
 {
     uint16_t space_time, mark_time; // 变量声明提到switch外

@@ -26,6 +26,7 @@
 #define LTR329_REG_DATA_CH0_1    0x8B   // CH0数据高字节
 #define LTR329_REG_STATUS        0x8C   // 状态寄存器
 
+// 高增益适合暗环境，低增益适合强光环境。
 // 增益配置（对应ALS_CONTR bit4:2，左移2位后的值）
 #define LTR329_GAIN_1X           0x00   // 量程 1~64000 lux
 #define LTR329_GAIN_2X           0x04   // 量程 0.5~32000 lux
@@ -34,6 +35,9 @@
 #define LTR329_GAIN_48X          0x18   // 量程 0.02~1300 lux
 #define LTR329_GAIN_96X          0x1C   // 量程 0.01~600 lux
 
+// 表示一次光照测量累计多长时间。
+// - 时间长：低光更敏感、数据通常更稳定，但容易饱和，响应更慢。
+// - 时间短：响应快、强光不容易饱和，但低光分辨率变差。
 // 积分时间配置（对应MEAS_RATE bit5:3，左移3位后的值）
 #define LTR329_INT_50MS          0x08
 #define LTR329_INT_100MS         0x00   // 默认
@@ -44,6 +48,7 @@
 #define LTR329_INT_350MS         0x38
 #define LTR329_INT_400MS         0x18
 
+// 表示多长时间更新数据
 // 测量重复速率配置（对应MEAS_RATE bit2:0）
 #define LTR329_RATE_50MS         0x00
 #define LTR329_RATE_100MS        0x01
