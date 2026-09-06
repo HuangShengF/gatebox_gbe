@@ -45,32 +45,33 @@
 #include "gbe_protocol.h"
 #include "gb_protocol.h"
 #include "usb_cdc.h"
+#include "bsp_ltr329.h"
 __IO uint32_t TimingDelay = 0;
 uint32_t system_clock = 0;
 
 void Delay(__IO uint32_t nCount);
 void Protocol_CrcTest(void)
 {
-   static const uint8_t test_data_1[] =
-       {
-           0x31, 0x32, 0x33, 0x34, 0x35,
-           0x36, 0x37, 0x38, 0x39};
+    static const uint8_t test_data_1[] =
+        {
+            0x31, 0x32, 0x33, 0x34, 0x35,
+            0x36, 0x37, 0x38, 0x39};
 
-   static const uint8_t test_data_2[] =
-       {
-           0xA5, 0xB3,
-           0x01, 0x00,
-           0x01, 0x00,
-           0x00, 0x00};
+    static const uint8_t test_data_2[] =
+        {
+            0xA5, 0xB3,
+            0x01, 0x00,
+            0x01, 0x00,
+            0x00, 0x00};
 
-   uint16_t crc_1;
-   uint16_t crc_2;
+    uint16_t crc_1;
+    uint16_t crc_2;
 
-   crc_1 = gb_protocol_crc16(test_data_1, sizeof(test_data_1));
-   crc_2 = gb_protocol_crc16(test_data_2, sizeof(test_data_2));
+    crc_1 = gb_protocol_crc16(test_data_1, sizeof(test_data_1));
+    crc_2 = gb_protocol_crc16(test_data_2, sizeof(test_data_2));
 
-   printf("CRC test 1 = %04X\r\n", (unsigned int)crc_1);
-   printf("CRC test 2 = %04X\r\n", (unsigned int)crc_2);
+    printf("CRC test 1 = %04X\r\n", (unsigned int)crc_1);
+    printf("CRC test 2 = %04X\r\n", (unsigned int)crc_2);
 }
 static void Clock_Print(void)
 {
@@ -122,6 +123,15 @@ int main(void)
     }
     log_init();
     delay_init();
+    int ret = LTR329_Init(LTR329_GAIN_1X, LTR329_INT_100MS, LTR329_RATE_200MS);
+    if(ret != LTR329_OK)
+    {
+        printf("LTR329_Init error %d\r\n", ret);
+    }
+    else 
+    {
+        printf("LTR329_Init ok\r\n");
+    }
 
     delay_ms(20);
     printf("\r\n");
@@ -131,8 +141,15 @@ int main(void)
     // IR_Start();
     // 初始化红外模块
     IR_Init();
-    
+
     gbe_protocol_init();
+    // uint8_t pir_left_state = 0, pir_right_state = 0;
+    // uint16_t ch0 = 0, ch1 = 0;
+    // uint8_t left;
+    // uint8_t right;
+    // uint8_t last_left = 0xFF;
+    // uint8_t last_right = 0xFF;
+    float lux;
     while (1)
     {
         // printf("hello world\n");
@@ -148,8 +165,30 @@ int main(void)
                 gb_protocol_process_byte(cdc_rx_data[i]);
             }
         } while (cdc_rx_length != 0U);
-        IR_Poll();
-        delay_ms(10);
+        // int ret = LTR329_CalculateLux(LTR329_GAIN_1X, LTR329_INT_100MS, 1.0, &lux);
+        // if(ret == LTR329_OK)
+        // {
+        //     printf("lux: %f\n");
+        // }
+        // else 
+        // {
+        //     printf("error: %d\n", ret);
+        // }
+        
+        gbe_protocol_poll();
+        // IR_Poll();
+
+        // delay_ms(10);
+        // PIR_GetStates(&left, &right);
+        // printf(" left=%d, right=%d\r\n", left, right);
+        // if ((left != last_left) || (right != last_right))
+        // {
+        //     printf("PIR raw: left=%d, right=%d\r\n", left, right);
+        //     last_left = left;
+        //     last_right = right;
+        // }
+
+         delay_ms(500);
     }
 }
 
