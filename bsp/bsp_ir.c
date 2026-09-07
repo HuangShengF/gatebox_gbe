@@ -291,23 +291,16 @@ static uint8_t IR_IsNear(uint16_t val, uint16_t center)
 }
 
 // AEHA 最多支持1280bit
-// static IR_data_t decode_buffer[1281] = {0};
 IR_DecodeErr_t IR_DecodeFrame(void)
 {
-    // memset(decode_buffer, 0, sizeof(decode_buffer));
+    static IR_data_t decode_buffer[1281] = {0};
     uint16_t nbits = 0;
-    // 把数据拷贝到临时存起来，防止被覆盖
+
+    // 关中断，快速拷贝数据到独立缓冲区，防止被覆盖
     NVIC_DisableIRQ(TIM5_IRQn);
-
-    uint16_t count = ir_cap.complete_count;   /* ISR 清零 count 前存下的帧长 */
-    // 共享内存，省RAM
-    IR_data_t *decode_buffer = ir_cap.data;  
-
+    uint16_t count = ir_cap.complete_count;
     /* 快照: 多拷一个元素 —— Sony 单发时最后一位的 mark 存在 data[count] */
-    for (uint16_t i = 0; i <= count && i < IR_MAX_EDGES; i++)
-    {
-        decode_buffer[i] = ir_cap.data[i];
-    }
+    memcpy(decode_buffer, ir_cap.data, (count + 1) * sizeof(IR_data_t));
     NVIC_EnableIRQ(TIM5_IRQn);
 
     if (count < IR_MIN_PAIRS)
