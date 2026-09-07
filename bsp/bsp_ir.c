@@ -41,23 +41,51 @@ typedef struct
     IR_Protocol_t protocol;
     uint16_t bit_count;
     uint8_t data[200];
+    uint16_t repeat_count;
 } IR_Decoded_t;
+
 IR_Decoded_t ir_decoded = {
     .protocol = IR_PROTOCOL_UNKNOWN,
     .bit_count = 0,
-    .data = {0}};
+    .data = {0},
+    .repeat_count = 0
+};
+/*********保存上一帧用于比较是不是重复帧************/
+static IR_Decoded_t last_decoded = {
+    .protocol = IR_PROTOCOL_UNKNOWN,
+    .bit_count = 0,
+    .data = {0},
+    .repeat_count = 0
+};
 
 // 用于判断最短帧
 #define IR_MIN_PAIRS 12
 #define IR_MAX_EDGES 1281   // 这是支持一帧最多多少个bit；；AEHA最长可达1280
-static IR_data_t ir_buffer[IR_MAX_EDGES]; // 静态分配
+// 乒乓缓冲区：创建两个缓冲区A和B
+static IR_data_t ir_buffer_A[IR_MAX_EDGES];
+static IR_data_t ir_buffer_B[IR_MAX_EDGES];
 
-IR_RxFrame_t ir_cap = {
-    .data = ir_buffer,
+// 缓冲区A
+static IR_RxFrame_t ir_cap_A = {
+    .data = ir_buffer_A,
     .count = 0,
     .complete_count = 0,
     .protocol = IR_PROTOCOL_ERROR,
     .capture_complete = false};
+
+// 缓冲区B
+static IR_RxFrame_t ir_cap_B = {
+    .data = ir_buffer_B,
+    .count = 0,
+    .complete_count = 0,
+    .protocol = IR_PROTOCOL_ERROR,
+    .capture_complete = false};
+
+// 当前写入缓冲区指针（中断使用）
+static IR_RxFrame_t *ir_cap_write = &ir_cap_A;
+
+// 当前读取缓冲区指针（主循环使用）
+static IR_RxFrame_t *ir_cap_read = &ir_cap_B;
 
 /* 微秒转定时器计数值 (TIM6: 24MHz / 24 = 1MHz, 1us per tick) */
 #define US_TO_TICKS(us) (us)
@@ -290,18 +318,19 @@ static uint8_t IR_IsNear(uint16_t val, uint16_t center)
     return ((uint32_t)val >= lower) && ((uint32_t)val <= upper);
 }
 
+// 判断是否为引导头
+static bool IsLeaderMark(uint16_t mark)
+{
+    return (IR_IsNear(mark, NEC_START_MARK) || IR_IsNear(mark, AEHA_START_MARK) || IR_IsNear(mark, SONY_START_MARK));
+}
+
 // AEHA 最多支持1280bit
 IR_DecodeErr_t IR_DecodeFrame(void)
 {
-    static IR_data_t decode_buffer[1281] = {0};
     uint16_t nbits = 0;
 
-    // 关中断，快速拷贝数据到独立缓冲区，防止被覆盖
-    NVIC_DisableIRQ(TIM5_IRQn);
-    uint16_t count = ir_cap.complete_count;
-    /* 快照: 多拷一个元素 —— Sony 单发时最后一位的 mark 存在 data[count] */
-    memcpy(decode_buffer, ir_cap.data, (count + 1) * sizeof(IR_data_t));
-    NVIC_EnableIRQ(TIM5_IRQn);
+    // 使用乒乓缓冲区，直接读取 ir_cap_read，不需要额外缓冲区
+    uint16_t count = ir_cap_read->complete_count;
 
     if (count < IR_MIN_PAIRS)
     {
@@ -310,8 +339,8 @@ IR_DecodeErr_t IR_DecodeFrame(void)
 
     // 把接受到的数据解码
     /* ---- 1. 识别协议: mark 和 space 都要落在窗口内 ---- */
-    if (IR_IsNear(decode_buffer[0].mark, NEC_START_MARK) &&
-        IR_IsNear(decode_buffer[0].space, NEC_START_SPACE))
+    if (IR_IsNear(ir_cap_read->data[0].mark, NEC_START_MARK) &&
+        IR_IsNear(ir_cap_read->data[0].space, NEC_START_SPACE))
     {
         // 标准单帧NEC
         if(count == 33)
@@ -321,7 +350,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
         else if(count > 33)
         {
             // 如果不是单帧NEC，则判断是否重复帧NEC
-            if((IR_IsNear(decode_buffer[34].mark, 9000)) && (IR_IsNear(decode_buffer[34].space, 2500)))
+            if((IR_IsNear(ir_cap_read->data[34].mark, 9000)) && (IR_IsNear(ir_cap_read->data[34].space, 2500)))
             {
                 ir_decoded.protocol = IR_PROTOCOL_NEC;
             }
@@ -332,13 +361,13 @@ IR_DecodeErr_t IR_DecodeFrame(void)
         }
         
     }
-    else if (IR_IsNear(decode_buffer[0].mark, AEHA_START_MARK) &&
-             IR_IsNear(decode_buffer[0].space, AEHA_START_SPACE))
+    else if (IR_IsNear(ir_cap_read->data[0].mark, AEHA_START_MARK) &&
+             IR_IsNear(ir_cap_read->data[0].space, AEHA_START_SPACE))
     {
         ir_decoded.protocol = IR_PROTOCOL_AEHA;
     }
-    else if (IR_IsNear(decode_buffer[0].mark, SONY_START_MARK) &&
-             IR_IsNear(decode_buffer[0].space, SONY_BIT_SPACE))
+    else if (IR_IsNear(ir_cap_read->data[0].mark, SONY_START_MARK) &&
+             IR_IsNear(ir_cap_read->data[0].space, SONY_BIT_SPACE))
     {
         ir_decoded.protocol = IR_PROTOCOL_SONY;
     }
@@ -361,7 +390,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
                 /* space 1690=1 / 560=0, 阈值 1100 */
                 // 这个数组里面存的是字节
                 ir_decoded.data[i / 8] |=
-                    (uint8_t)((decode_buffer[1 + i].space > 1100) ? 1 : 0) << (i % 8);
+                    (uint8_t)((ir_cap_read->data[1 + i].space > 1100) ? 1 : 0) << (i % 8);
             }
             break;
         }
@@ -371,7 +400,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
             uint16_t end = count; /* 无重发: 停止位是最后一个 mark */
             for (uint16_t i = 1; i < count; i++)
             {
-                if (decode_buffer[i].space >= 4000)
+                if (ir_cap_read->data[i].space >= 4000)
                 {
                     end = i;
                     break;
@@ -384,7 +413,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
             {
                 /* space 1275=1 / 425=0, 阈值 850 */
                 ir_decoded.data[i / 8] |=
-                    (uint8_t)((decode_buffer[1 + i].space > 850) ? 1 : 0) << (i % 8);
+                    (uint8_t)((ir_cap_read->data[1 + i].space > 850) ? 1 : 0) << (i % 8);
             }
             break;
         }
@@ -397,7 +426,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
             nbits = count;
             for (uint16_t i = 1; i < count; i++)
             {
-                if (decode_buffer[i].space >= 5000)
+                if (ir_cap_read->data[i].space >= 5000)
                 {
                     nbits = i;
                     break;
@@ -409,7 +438,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
             {
                 /* mark 1200=1 / 600=0 */
                 ir_decoded.data[i / 8] |=
-                    (uint8_t)((decode_buffer[1 + i].mark >= 900) ? 1 : 0) << (i % 8);
+                    (uint8_t)((ir_cap_read->data[1 + i].mark >= 900) ? 1 : 0) << (i % 8);
             }
             break;
         }
@@ -429,27 +458,27 @@ void IR_Poll(void)
 {
     IR_DecodeErr_t err;
 
-    if (!ir_cap.capture_complete) return;
-    ir_cap.capture_complete = false;
+    if (!ir_cap_read->capture_complete) return;
+    ir_cap_read->capture_complete = false;
     if (ir_ctrl.is_sending) return;      /* 自己发射的回声不学习 */
 
     err = IR_DecodeFrame();
     // IR_Poll 里, err 打印下面加:
-    printf("  count=%u:", ir_cap.complete_count);
-    for (uint16_t i = 0; i < ir_cap.complete_count; i++) {
-        printf(" %u/%u", ir_cap.data[i].mark, ir_cap.data[i].space);
+    printf("  count=%u:", ir_cap_read->complete_count);
+    for (uint16_t i = 0; i < ir_cap_read->complete_count; i++) {
+        printf(" %u/%u", ir_cap_read->data[i].mark, ir_cap_read->data[i].space);
     }
     printf("\r\n");
-    printf("  last pair [%u]: mark=%u space=%u\r\n", ir_cap.complete_count,
-           ir_cap.data[ir_cap.complete_count - 1].mark,
-           ir_cap.data[ir_cap.complete_count - 1].space);
+    printf("  last pair [%u]: mark=%u space=%u\r\n", ir_cap_read->complete_count,
+           ir_cap_read->data[ir_cap_read->complete_count - 1].mark,
+           ir_cap_read->data[ir_cap_read->complete_count - 1].space);
 
     if (err != IR_DECODE_OK)
     {
         printf("IR decode err=%d\r\n", err);
         /* 临时调试: 看原始引导码 */
         printf("  raw[0] mark=%u space=%u count=%u\r\n",
-               ir_cap.data[0].mark, ir_cap.data[0].space, ir_cap.complete_count);
+               ir_cap_read->data[0].mark, ir_cap_read->data[0].space, ir_cap_read->complete_count);
         return;
     }
 
@@ -462,7 +491,7 @@ void IR_Poll(void)
 
     /* 调试: Sony 单发时显示最后一位的 mark */
     if (ir_decoded.protocol == IR_PROTOCOL_SONY) {
-        printf("  tail mark=%u\r\n", ir_cap.data[ir_cap.complete_count].mark);
+        printf("  tail mark=%u\r\n", ir_cap_read->data[ir_cap_read->complete_count].mark);
     }
 
     memset(ir_decoded.data, 0, sizeof(ir_decoded.data));
@@ -487,13 +516,22 @@ void TIM5_IRQHandler(void)
 
         if (++timeout_cnt >= 2)  // 溢出2次 = 130ms
         {
-            if (started && ir_cap.count >= IR_MIN_PAIRS)
+            if (started && ir_cap_write->count >= IR_MIN_PAIRS)
             {
-                ir_cap.complete_count = ir_cap.count;  /* 先把帧长存下来再清零 */
-                ir_cap.capture_complete = true;
+                // 如果超时了，认为已经接收完成，这时候需要交换缓冲区
+            ir_cap_write->complete_count = ir_cap_write->count;
+            ir_cap_write->capture_complete = true;
+            
+            // 切换乒乓缓冲区
+            IR_RxFrame_t *temp = ir_cap_write;
+            ir_cap_write = ir_cap_read;
+            ir_cap_read = temp;
+            
+            // 重置新的写缓冲区
+            ir_cap_write->count = 0;
+            ir_cap_write->capture_complete = false;
             }
             started = 0;
-            ir_cap.count = 0;
             timeout_cnt = 0;
         }
     }
@@ -509,12 +547,12 @@ void TIM5_IRQHandler(void)
             timeout_cnt = 0;  // 新帧开始,重置超时计数
             return;
         }
-        ir_cap.data[ir_cap.count].space = TIM_GetCap1(TIM5);
+        ir_cap_write->data[ir_cap_write->count].space = TIM_GetCap1(TIM5);
         TIM_SetCnt(TIM5, 0);
-        timeout_cnt = 0;  // 收到边沿,重置超时计数
-        if (ir_cap.count < IR_MAX_EDGES - 1)
+        timeout_cnt = 0;
+        if (ir_cap_write->count < IR_MAX_EDGES - 1)
         {
-            ir_cap.count++;
+            ir_cap_write->count++;
         }
     }
     if (TIM_GetIntStatus(TIM5, TIM_INT_CC2) != RESET)
@@ -524,7 +562,35 @@ void TIM5_IRQHandler(void)
         if (started)
         {
             // 防止空闲时有毛刺
-            ir_cap.data[ir_cap.count].mark = TIM_GetCap2(TIM5);
+            uint16_t mark_time = TIM_GetCap2(TIM5);
+            ir_cap_write->data[ir_cap_write->count].mark = mark_time;
+
+            if(ir_cap_write->count > 0)
+            {
+               // 至少不是第一个
+                // 获取上一个的space时间
+                uint16_t last_space = ir_cap_write->data[ir_cap_write->count - 1].space;
+                if(IsLeaderMark(mark_time) && (last_space >= 3000) && ir_cap_write->count >= IR_MIN_PAIRS)
+                {
+                    // 说明是重复帧,退出来解码，但是下一帧的mark已经捕获我们不能丢弃，存下来
+                    ir_cap_write->complete_count = ir_cap_write->count - 1;  /* 先把帧长存下来再清零 */
+                    ir_cap_write->capture_complete = true;
+                    // 切换乒乓缓冲区
+                    IR_RxFrame_t *temp = ir_cap_write;
+                    ir_cap_write = ir_cap_read;
+                    ir_cap_read = temp;
+                    
+                    // 新缓冲区开始接收新帧
+                    ir_cap_write->count = 0;
+                    ir_cap_write->capture_complete = false;
+                    ir_cap_write->data[0].mark = mark_time;
+                    
+                    TIM_SetCnt(TIM5, 0);
+                    timeout_cnt = 0;
+                    return;
+                }
+
+            }
         }
 
         TIM_SetCnt(TIM5, 0);
