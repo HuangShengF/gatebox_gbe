@@ -51,7 +51,7 @@ IR_Decoded_t ir_decoded = {
     .repeat_count = 0
 };
 /*********保存上一帧用于比较是不是重复帧************/
-static IR_Decoded_t last_decoded = {
+static IR_Decoded_t ir_last_frame = {
     .protocol = IR_PROTOCOL_UNKNOWN,
     .bit_count = 0,
     .data = {0},
@@ -482,24 +482,48 @@ void IR_Poll(void)
         return;
     }
 
-    printf("IR proto=%d bits=%d data:", ir_decoded.protocol, ir_decoded.bit_count);
-    for (uint16_t i = 0; i < (ir_decoded.bit_count + 7) / 8; i++)
+    // 解码成功
+    // 判断是否是重复帧
+    bool is_repeat = false;
+    if (ir_last_frame.protocol == ir_decoded.protocol && ir_last_frame.bit_count == ir_decoded.bit_count)
     {
-        printf(" %02X", ir_decoded.data[i]);
+        // 向上取整
+         uint16_t byte_count = (ir_decoded.bit_count + 7) / 8;
+        if (memcmp(ir_last_frame.data, ir_decoded.data, byte_count) == 0)
+        {
+            is_repeat = true;
+        }
     }
-    printf("\r\n");
+    if (is_repeat)
+    {
+        // 重复帧：只增加计数
+        ir_decoded.repeat_count++;
+        printf("IR REPEAT frame, repeat_count=%u\r\n", ir_decoded.repeat_count);
+    }
+    else
+    {
+        // 新帧：重置计数并打印
+        ir_decoded.repeat_count = 0;
 
-    /* 调试: Sony 单发时显示最后一位的 mark */
-    if (ir_decoded.protocol == IR_PROTOCOL_SONY) {
-        printf("  tail mark=%u\r\n", ir_cap_read->data[ir_cap_read->complete_count].mark);
+        printf("IR proto=%d bits=%d data:", ir_decoded.protocol, ir_decoded.bit_count);
+        for (uint16_t i = 0; i < (ir_decoded.bit_count + 7) / 8; i++)
+        {
+            printf(" %02X", ir_decoded.data[i]);
+        }
+        printf("\r\n");
+
+        /* 调试: Sony 单发时显示最后一位的 mark */
+        if (ir_decoded.protocol == IR_PROTOCOL_SONY) {
+            printf("  tail mark=%u\r\n", ir_cap_read->data[ir_cap_read->complete_count].mark);
+        }
+
+        // 保存当前帧用于下次比对
+        memcpy(&ir_last_frame, &ir_decoded, sizeof(IR_Decoded_t));
     }
 
+    // 清空解码缓冲区
     memset(ir_decoded.data, 0, sizeof(ir_decoded.data));
     ir_decoded.bit_count = 0;
-    // for(uint16_t i = 0; i < (ir_decoded.bit_count + 7) / 8; i++)
-    // {
-    //     ir_decoded.data[i] = 0;
-    // }
 }
 
 
