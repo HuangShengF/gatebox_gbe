@@ -58,6 +58,9 @@ static IR_Decoded_t ir_last_frame = {
     .repeat_count = 0
 };
 
+// 超时标志：中断检测到130ms超时时置位，主循环清空last_frame后清零
+static volatile bool ir_sequence_timeout = false;
+
 // 用于判断最短帧
 #define IR_MIN_PAIRS 12
 #define IR_MAX_EDGES 1281   // 这是支持一帧最多多少个bit；；AEHA最长可达1280
@@ -332,6 +335,19 @@ IR_DecodeErr_t IR_DecodeFrame(void)
     // 使用乒乓缓冲区，直接读取 ir_cap_read，不需要额外缓冲区
     uint16_t count = ir_cap_read->complete_count;
 
+    // 先检测 NEC repeat 帧（只有1对数据）
+    if (count == 1)
+    {
+        // NEC repeat: 9000us mark + 2250us space + 560us 尾mark
+        if (IR_IsNear(ir_cap_read->data[0].mark, 9000) &&
+            IR_IsNear(ir_cap_read->data[0].space, 2250))
+        {
+            // 这是 NEC repeat，直接返回成功，不修改 ir_decoded
+            // ir_decoded 保持上一帧的数据不变
+            return IR_DECODE_OK;
+        }
+    }
+
     if (count < IR_MIN_PAIRS)
     {
         return IR_DECODE_ERR_TOO_SHORT; // 数据不够，最低是 sony的12bit
@@ -458,6 +474,15 @@ void IR_Poll(void)
 {
     IR_DecodeErr_t err;
 
+    // 检测超时标志：如果按键序列结束了，清空上一帧
+    if (ir_sequence_timeout)
+    {
+        ir_sequence_timeout = false;
+        // 清空上一帧，下次收到相同按键也会被视为新按键
+        ir_last_frame.protocol = IR_PROTOCOL_UNKNOWN;
+        ir_last_frame.bit_count = 0;
+    }
+
     if (!ir_cap_read->capture_complete) return;
     ir_cap_read->capture_complete = false;
     if (ir_ctrl.is_sending) return;      /* 自己发射的回声不学习 */
@@ -545,16 +570,20 @@ void TIM5_IRQHandler(void)
                 // 如果超时了，认为已经接收完成，这时候需要交换缓冲区
             ir_cap_write->complete_count = ir_cap_write->count;
             ir_cap_write->capture_complete = true;
-            
+
             // 切换乒乓缓冲区
             IR_RxFrame_t *temp = ir_cap_write;
             ir_cap_write = ir_cap_read;
             ir_cap_read = temp;
-            
+
             // 重置新的写缓冲区
             ir_cap_write->count = 0;
             ir_cap_write->capture_complete = false;
             }
+
+            // 130ms超时，标记按键序列结束
+            ir_sequence_timeout = true;
+
             started = 0;
             timeout_cnt = 0;
         }
