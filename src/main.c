@@ -106,6 +106,66 @@ static void Clock_Print(void)
     printf("SYSCLK source   = 0x%02X\r\n",
            RCC_GetSysclkSrc());
 }
+
+
+static  uint8_t aeha_data[6] = {
+    0x02, 0x20, 0x80, 0x00, 0x10, 0x90
+};
+    static const uint8_t nec_data[6] = {
+    0x00, 0xFF, 0x1C, 0xE3
+};  
+static const uint8_t sony_data[2] = {
+    0xB8, 0x00
+};
+void AEHA_switch(uint8_t cnt)
+{
+    switch (cnt)
+    {
+    case 0:
+        aeha_data[4] = 0x10;
+        aeha_data[5] = 0x90;
+        break;
+    case 1:
+        aeha_data[4] = 0x11;
+        aeha_data[5] = 0x91;
+        break;
+    case 2:
+        aeha_data[4] = 0x12;
+        aeha_data[5] = 0x92;
+        break;
+    case 3:
+        aeha_data[4] = 0x13;
+        aeha_data[5] = 0x93;
+        break;
+    case 4:
+        aeha_data[4] = 0x14;
+        aeha_data[5] = 0x94;
+        break;
+    case 5:
+        aeha_data[4] = 0x15;
+        aeha_data[5] = 0x95;
+        break;
+    case 6:
+        aeha_data[4] = 0x16;
+        aeha_data[5] = 0x96;
+        break;
+    case 7:
+        aeha_data[4] = 0x17;
+        aeha_data[5] = 0x97;
+        break;
+    case 8:
+        aeha_data[4] = 0x18;
+        aeha_data[5] = 0x98;
+        break;
+    case 9:
+        aeha_data[4] = 0x19;
+        aeha_data[5] = 0x99;
+        break;
+    default:
+        break;
+    }
+}
+
 int main(void)
 {
     uint8_t cdc_rx_data[64];
@@ -113,17 +173,18 @@ int main(void)
     uint16_t i;
     system_clock = SYSCLK_VALUE_48MHz;
 
-    if (USB_Config(system_clock) == SUCCESS)
-    {
-        USB_Init();
+//    if (USB_Config(system_clock) == SUCCESS)
+//    {
+//        USB_Init();
 
-        while (bDeviceState != CONFIGURED)
-        {
-        }
-    }
+//        while (bDeviceState != CONFIGURED)
+//        {
+//        }
+//    }
     log_init();
     delay_init();
-    int ret = LTR329_Init(LTR329_GAIN_1X, LTR329_INT_100MS, LTR329_RATE_200MS);
+	Clock_Print();
+    int ret = LTR329_Init(LTR329_GAIN_8X, LTR329_INT_100MS, LTR329_RATE_200MS);
     if(ret != LTR329_OK)
     {
         printf("LTR329_Init error %d\r\n", ret);
@@ -135,7 +196,7 @@ int main(void)
 
     delay_ms(20);
     printf("\r\n");
-    Clock_Print();
+    
     PIR_ExtiInit();
     // IR_Init();
     // IR_Start();
@@ -150,21 +211,23 @@ int main(void)
     // uint8_t last_left = 0xFF;
     // uint8_t last_right = 0xFF;
     float lux;
+
+    uint8_t cnt = 0;
     while (1)
     {
         // printf("hello world\n");
         // IR_Example();
         // delay_xms(2000);
-        do
-        {
-            cdc_rx_length =
-                USB_CDC_Read(cdc_rx_data, sizeof(cdc_rx_data));
+//        do
+//        {
+//            cdc_rx_length =
+//                USB_CDC_Read(cdc_rx_data, sizeof(cdc_rx_data));
 
-            for (i = 0; i < cdc_rx_length; i++)
-            {
-                gb_protocol_process_byte(cdc_rx_data[i]);
-            }
-        } while (cdc_rx_length != 0U);
+//            for (i = 0; i < cdc_rx_length; i++)
+//            {
+//                gb_protocol_process_byte(cdc_rx_data[i]);
+//            }
+//        } while (cdc_rx_length != 0U);
         // int ret = LTR329_CalculateLux(LTR329_GAIN_1X, LTR329_INT_100MS, 1.0, &lux);
         // if(ret == LTR329_OK)
         // {
@@ -175,9 +238,22 @@ int main(void)
         //     printf("error: %d\n", ret);
         // }
         
-        gbe_protocol_poll();
-        // IR_Poll();
+        // gbe_protocol_poll();
+        //   IR_Poll();
+        // switch(cnt)
+        // {
 
+        // }
+
+       AEHA_switch(cnt);
+       IR_SendData(IR_PROTOCOL_AEHA, (uint8_t *)aeha_data, 48);
+       cnt++;
+       cnt %= 10;
+        
+        //IR_SendData(IR_PROTOCOL_SONY, (uint8_t *)sony_data, 12);
+        // IR_SendData(IR_PROTOCOL_SONY, (uint8_t *)nec_data, 32);
+
+        // IR_SendData(IR_PROTOCOL_AEHA, (uint8_t *)tx_data, 48);
         // delay_ms(10);
         // PIR_GetStates(&left, &right);
         // printf(" left=%d, right=%d\r\n", left, right);
@@ -188,7 +264,7 @@ int main(void)
         //     last_right = right;
         // }
 
-         delay_ms(500);
+         delay_xms(1500);
     }
 }
 

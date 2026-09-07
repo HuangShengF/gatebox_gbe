@@ -3,6 +3,7 @@
 #include "bsp_pir.h"
 #include "bsp_ltr329.h"
 #include "log.h"
+#include "bsp_ir.h"
 
 static void gbe_protocol_pc_request_motion(const Frame_t *frame)
 {
@@ -25,6 +26,32 @@ static void gbe_protocol_pc_request_motion(const Frame_t *frame)
 
 static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
 {
+    // PC发来的数据进行解码然后进行发射
+    uint8_t format = frame->payload[0];
+    switch (format)
+    {
+    case IR_PROTOCOL_NEC:
+        /* code */
+        uint8_t nec_buf[4] = {0};
+        nec_buf[0] = frame->payload[1];
+        nec_buf[1] = frame->payload[2];
+        nec_buf[2] = frame->payload[3];
+        nec_buf[3] = ~(frame->payload[4]); 
+        uint8_t repeat_count = frame->payload[5];
+        // IR_SendData(IR_PROTOCOL_NEC, nec_buf, 4);
+
+        break;
+    case IR_PROTOCOL_AEHA:
+        /* code */
+        break;
+    case IR_PROTOCOL_SONY:
+        /* code */
+        // 地址16位，data8位
+        uint8_t sony_buf[3] = {0};
+        break;
+    default:
+        break;
+    }
 }
 
 static gb_request_callback_t gb_callback[2] = {NULL};
@@ -57,7 +84,7 @@ void gbe_protocol_upload_ambient_light(void)
     }
     last_time = current_time;
 
-    ret = LTR329_CalculateLux(LTR329_GAIN_1X, LTR329_INT_100MS, 1.0, &lux);
+    ret = LTR329_CalculateLux(LTR329_GAIN_8X, LTR329_INT_100MS, 1.0, &lux);
     if(ret == LTR329_ERR_NO_NEW_DATA)
     {
         // 没有更新数据

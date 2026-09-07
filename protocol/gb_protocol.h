@@ -33,8 +33,10 @@
 #define ERR_INVALID_PAYLOAD     0x0002
 #define ERR_INVALID_PARAM       0x0003
 #define ERR_INVALID_STATE       0x0004
+#define ERR_BUSY                0x0005
 #define ERR_INTERNAL            0x0006
 #define ERR_PROTOCOL_VERSION    0x0007
+#define ERR_RESOURCE_LIMIT      0x0008
 
 // ============ 超时时间 ============
 #define PROTOCOL_INTER_BYTE_TIMEOUT_MS  100U
