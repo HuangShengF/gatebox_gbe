@@ -90,7 +90,7 @@ static IR_RxFrame_t ir_cap_B = {
 static IR_RxFrame_t *ir_cap_write = &ir_cap_A;
 
 // 当前读取缓冲区指针（主循环使用）
-static IR_RxFrame_t *ir_cap_read = &ir_cap_B;
+static IR_RxFrame_t * volatile ir_cap_read = &ir_cap_B;
 
 /* 微秒转定时器计数值 (TIM6: 24MHz / 24 = 1MHz, 1us per tick) */
 #define US_TO_TICKS(us) (us)
@@ -414,20 +414,20 @@ static void IR_FinishEvent(void)
 }
 
 // AEHA 最多支持1280bit
-IR_DecodeErr_t IR_DecodeFrame(void)
+static IR_DecodeErr_t IR_DecodeFrame(const IR_RxFrame_t *frame)
 {
     uint16_t nbits = 0;
 
-    // 使用乒乓缓冲区，直接读取 ir_cap_read，不需要额外缓冲区
-    uint16_t count = ir_cap_read->complete_count;
+    // 使用主循环已领取的固定缓冲区
+    uint16_t count = frame->complete_count;
 
      g_nec_repeat_frame = false;
     // 先检测 NEC repeat 帧（只有1对数据）
     if (count == 1)
     {
         // NEC repeat: 9000us mark + 2250us space + 560us 尾mark
-        if (IR_IsNear(ir_cap_read->data[0].mark, 9000) &&
-            IR_IsNear(ir_cap_read->data[0].space, 2250) && IR_IsNear(ir_cap_read->data[1].mark,NEC_STOP_MARK))
+        if (IR_IsNear(frame->data[0].mark, 9000) &&
+            IR_IsNear(frame->data[0].space, 2250) && IR_IsNear(frame->data[1].mark,NEC_STOP_MARK))
         {
             // 这是 NEC repeat，直接返回成功，不修改 ir_decoded
             // ir_decoded 保持上一帧的数据不变
@@ -448,8 +448,8 @@ IR_DecodeErr_t IR_DecodeFrame(void)
 
     // 把接受到的数据解码
     /* ---- 1. 识别协议: mark 和 space 都要落在窗口内 ---- */
-    if (IR_IsNear(ir_cap_read->data[0].mark, NEC_START_MARK) &&
-        IR_IsNear(ir_cap_read->data[0].space, NEC_START_SPACE))
+    if (IR_IsNear(frame->data[0].mark, NEC_START_MARK) &&
+        IR_IsNear(frame->data[0].space, NEC_START_SPACE))
     {
         // 标准单帧NEC
         if(count != 33)
@@ -458,13 +458,13 @@ IR_DecodeErr_t IR_DecodeFrame(void)
         }
         ir_decoded.protocol = IR_PROTOCOL_NEC;
     }
-    else if (IR_IsNear(ir_cap_read->data[0].mark, AEHA_START_MARK) &&
-             IR_IsNear(ir_cap_read->data[0].space, AEHA_START_SPACE))
+    else if (IR_IsNear(frame->data[0].mark, AEHA_START_MARK) &&
+             IR_IsNear(frame->data[0].space, AEHA_START_SPACE))
     {
         ir_decoded.protocol = IR_PROTOCOL_AEHA;
     }
-    else if (IR_IsNear(ir_cap_read->data[0].mark, SONY_START_MARK) &&
-             IR_IsNear(ir_cap_read->data[0].space, SONY_BIT_SPACE))
+    else if (IR_IsNear(frame->data[0].mark, SONY_START_MARK) &&
+             IR_IsNear(frame->data[0].space, SONY_BIT_SPACE))
     {
         ir_decoded.protocol = IR_PROTOCOL_SONY;
     }
@@ -487,7 +487,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
                 /* space 1690=1 / 560=0, 阈值 1100 */
                 // 这个数组里面存的是字节
                 ir_decoded.data[i / 8] |=
-                    (uint8_t)((ir_cap_read->data[1 + i].space > 1100) ? 1 : 0) << (i % 8);
+                    (uint8_t)((frame->data[1 + i].space > 1100) ? 1 : 0) << (i % 8);
             }
             break;
         }
@@ -497,7 +497,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
             uint16_t end = count; /* 无重发: 停止位是最后一个 mark */
             for (uint16_t i = 1; i < count; i++)
             {
-                if (ir_cap_read->data[i].space >= 4000)
+                if (frame->data[i].space >= 4000)
                 {
                     end = i;
                     break;
@@ -510,7 +510,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
             {
                 /* space 1275=1 / 425=0, 阈值 850 */
                 ir_decoded.data[i / 8] |=
-                    (uint8_t)((ir_cap_read->data[1 + i].space > 850) ? 1 : 0) << (i % 8);
+                    (uint8_t)((frame->data[1 + i].space > 850) ? 1 : 0) << (i % 8);
             }
             break;
         }
@@ -523,7 +523,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
             nbits = count;
             for (uint16_t i = 1; i < count; i++)
             {
-                if (ir_cap_read->data[i].space >= 5000)
+                if (frame->data[i].space >= 5000)
                 {
                     nbits = i;
                     break;
@@ -535,7 +535,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
             {
                 /* mark 1200=1 / 600=0 */
                 ir_decoded.data[i / 8] |=
-                    (uint8_t)((ir_cap_read->data[1 + i].mark >= 900) ? 1 : 0) << (i % 8);
+                    (uint8_t)((frame->data[1 + i].mark >= 900) ? 1 : 0) << (i % 8);
             }
             break;
         }
@@ -555,13 +555,27 @@ IR_DecodeErr_t IR_DecodeFrame(void)
 void IR_Poll(void)
 {
     IR_DecodeErr_t err;
+    IR_RxFrame_t *frame = NULL;
+    bool sequence_timeout = false;
 
-     /* 先处理最后收到的物理帧 */
+    /* 原子领取完整帧和超时标志，避免最后一帧被拆成新事件 */
+    NVIC_DisableIRQ(TIM5_IRQn);
     if (ir_cap_read->capture_complete)
     {
-        err = IR_DecodeFrame();
+        frame = ir_cap_read;
+        frame->capture_complete = false;
+    }
+    if (ir_sequence_timeout)
+    {
+        ir_sequence_timeout = false;
+        sequence_timeout = true;
+    }
+    NVIC_EnableIRQ(TIM5_IRQn);
 
-        ir_cap_read->capture_complete = false;
+    /* 先处理最后收到的物理帧 */
+    if (frame != NULL)
+    {
+        err = IR_DecodeFrame(frame);
 
         if (err == IR_DECODE_OK)
         {
@@ -573,10 +587,9 @@ void IR_Poll(void)
         }
     }
 
-    // 检测超时标志：如果按键序列结束了，清空上一帧
-    if (ir_sequence_timeout)
+    // 处理完最后一帧后，再结束本次按键序列
+    if (sequence_timeout)
     {
-        ir_sequence_timeout = false;
         IR_FinishEvent();
     }
 
@@ -660,29 +673,32 @@ void TIM5_IRQHandler(void)
         // 更新中断 (65ms溢出)
         TIM_ClrIntPendingBit(TIM5, TIM_INT_UPDATE);
 
-        if (++timeout_cnt >= 2)  // 溢出2次 = 130ms
+        if (started)
         {
-            if (started && ir_cap_write->count >= 1) // 这里ir_cap_write->count必须>=1(不然会丢NEC的repeat)
+            if (++timeout_cnt >= 2U)  // 溢出2次，约130ms
             {
-                // 如果超时了，认为已经接收完成，这时候需要交换缓冲区
-            ir_cap_write->complete_count = ir_cap_write->count;
-            ir_cap_write->capture_complete = true;
+                if (ir_cap_write->count >= 1U) // 这里count必须>=1，否则会丢NEC repeat
+                {
+                    // 如果超时了，认为已经接收完成，这时候需要交换缓冲区
+                    ir_cap_write->complete_count = ir_cap_write->count;
+                    ir_cap_write->capture_complete = true;
 
-            // 切换乒乓缓冲区
-            IR_RxFrame_t *temp = ir_cap_write;
-            ir_cap_write = ir_cap_read;
-            ir_cap_read = temp;
+                    // 切换乒乓缓冲区
+                    IR_RxFrame_t *temp = ir_cap_write;
+                    ir_cap_write = ir_cap_read;
+                    ir_cap_read = temp;
 
-            // 重置新的写缓冲区
-            ir_cap_write->count = 0;
-            ir_cap_write->capture_complete = false;
+                    // 重置新的写缓冲区
+                    ir_cap_write->count = 0;
+                    ir_cap_write->capture_complete = false;
+                }
+
+                // 超时，标记按键序列结束
+                ir_sequence_timeout = true;
+
+                started = 0;
+                timeout_cnt = 0;
             }
-
-            // 130ms超时，标记按键序列结束
-            ir_sequence_timeout = true;
-
-            started = 0;
-            timeout_cnt = 0;
         }
     }
     if (TIM_GetIntStatus(TIM5, TIM_INT_CC1) != RESET)
@@ -721,7 +737,7 @@ void TIM5_IRQHandler(void)
                 // 获取上一个的space时间
                 uint16_t last_space = ir_cap_write->data[ir_cap_write->count - 1].space;
                 //这里ir_cap_write->count必须>=1(不然会丢NEC的repeat)
-                if(IsLeaderMark(mark_time) && (last_space >= 3000) && ir_cap_write->count >= 1)
+                if(IsLeaderMark(mark_time) && (last_space >= 3000U) && ir_cap_write->count >= 1)
                 {
                     // 说明是重复帧,退出来解码，但是下一帧的mark已经捕获我们不能丢弃，存下来
                     ir_cap_write->complete_count = ir_cap_write->count - 1;  /* 先把帧长存下来再清零 */
