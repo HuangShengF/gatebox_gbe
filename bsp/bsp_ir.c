@@ -1,6 +1,7 @@
 #include "bsp_ir.h"
 #include <stddef.h>
 #include <string.h>
+#include "log.h"
 /* 红外发送控制结构 */
 typedef struct
 {
@@ -60,6 +61,7 @@ static IR_Decoded_t ir_last_frame = {
 
 // 超时标志：中断检测到130ms超时时置位，主循环清空last_frame后清零
 static volatile bool ir_sequence_timeout = false;
+static bool g_nec_repeat_frame = false; // NEC重复帧标志
 
 // 用于判断最短帧
 #define IR_MIN_PAIRS 12
@@ -327,6 +329,90 @@ static bool IsLeaderMark(uint16_t mark)
     return (IR_IsNear(mark, NEC_START_MARK) || IR_IsNear(mark, AEHA_START_MARK) || IR_IsNear(mark, SONY_START_MARK));
 }
 
+static void IR_ProcessDecodedFrame(void)
+{
+    uint16_t byte_count;
+    // 处理NEC重复帧
+    if(g_nec_repeat_frame)
+    {
+        // 如果是重复帧，++
+        if((ir_last_frame.protocol == IR_PROTOCOL_NEC) && (ir_last_frame.bit_count == 32)) 
+        {
+            if(ir_last_frame.repeat_count < 255)
+            {
+                ir_last_frame.repeat_count++;
+            }
+        }
+        return;
+    }
+
+    // 如果协议不对，则返回
+    if ((ir_decoded.protocol == IR_PROTOCOL_UNKNOWN) ||
+        (ir_decoded.protocol == IR_PROTOCOL_ERROR) ||
+        (ir_decoded.bit_count == 0U))
+    {
+        return;
+    }
+
+    // 如果是第一帧，把ir_decoded的东西拷贝到ir_last
+    if(ir_last_frame.protocol == IR_PROTOCOL_UNKNOWN)
+    {
+        memcpy(&ir_last_frame, &ir_decoded, sizeof(ir_last_frame));
+        ir_last_frame.repeat_count = 1;
+        return;
+    }
+
+    // AEHA和SONY通过完整重复帧码来判断重复
+    byte_count = (ir_decoded.bit_count + 7U) / 8U;
+     if ((ir_last_frame.protocol == ir_decoded.protocol) &&
+        (ir_last_frame.bit_count == ir_decoded.bit_count) &&
+            (memcmp(ir_last_frame.data,ir_decoded.data,byte_count) == 0))
+    {
+        if(ir_last_frame.repeat_count < 255)
+        {
+            ir_last_frame.repeat_count++; // 重复帧数加1
+        }
+    }
+
+    // // 防止有些遥控器发送完整帧
+    // if ((ir_last_frame.protocol == IR_PROTOCOL_NEC) &&(memcmp(ir_last_frame.data,ir_decoded.data,4U) == 0))
+    // {
+    //     if (ir_last_frame.repeat_count < 255U)
+    //     {
+    //         ir_last_frame.repeat_count++;
+    //     }
+    //     return;
+    // }
+}
+
+static void IR_FinishEvent(void)
+{
+    uint16_t byte_count;
+
+    if (ir_last_frame.protocol == IR_PROTOCOL_UNKNOWN)
+    {
+        return;
+    }
+    byte_count = (ir_last_frame.bit_count + 7U) / 8U;
+
+    printf("IR proto=%u bits=%u repeat=%u data:",
+           ir_last_frame.protocol,
+           ir_last_frame.bit_count,
+           ir_last_frame.repeat_count);
+
+    for (uint16_t i = 0; i < byte_count; i++)
+    {
+        printf(" %02X", ir_last_frame.data[i]);
+    }
+
+    printf("\r\n");
+
+    /* 后续根据protocol生成0x2401通知 */
+
+    memset(&ir_last_frame, 0, sizeof(ir_last_frame));
+    ir_last_frame.protocol = IR_PROTOCOL_UNKNOWN;
+}
+
 // AEHA 最多支持1280bit
 IR_DecodeErr_t IR_DecodeFrame(void)
 {
@@ -335,17 +421,20 @@ IR_DecodeErr_t IR_DecodeFrame(void)
     // 使用乒乓缓冲区，直接读取 ir_cap_read，不需要额外缓冲区
     uint16_t count = ir_cap_read->complete_count;
 
+     g_nec_repeat_frame = false;
     // 先检测 NEC repeat 帧（只有1对数据）
     if (count == 1)
     {
         // NEC repeat: 9000us mark + 2250us space + 560us 尾mark
         if (IR_IsNear(ir_cap_read->data[0].mark, 9000) &&
-            IR_IsNear(ir_cap_read->data[0].space, 2250))
+            IR_IsNear(ir_cap_read->data[0].space, 2250) && IR_IsNear(ir_cap_read->data[1].mark,NEC_STOP_MARK))
         {
             // 这是 NEC repeat，直接返回成功，不修改 ir_decoded
             // ir_decoded 保持上一帧的数据不变
+              g_nec_repeat_frame = true;
             return IR_DECODE_OK;
         }
+        return IR_DECODE_ERR_TOO_SHORT;
     }
 
     if (count < IR_MIN_PAIRS)
@@ -353,29 +442,21 @@ IR_DecodeErr_t IR_DecodeFrame(void)
         return IR_DECODE_ERR_TOO_SHORT; // 数据不够，最低是 sony的12bit
     }
 
+    memset(&ir_decoded, 0, sizeof(ir_decoded));
+    ir_decoded.protocol = IR_PROTOCOL_UNKNOWN;
+
+
     // 把接受到的数据解码
     /* ---- 1. 识别协议: mark 和 space 都要落在窗口内 ---- */
     if (IR_IsNear(ir_cap_read->data[0].mark, NEC_START_MARK) &&
         IR_IsNear(ir_cap_read->data[0].space, NEC_START_SPACE))
     {
         // 标准单帧NEC
-        if(count == 33)
+        if(count != 33)
         {
-            ir_decoded.protocol = IR_PROTOCOL_NEC;
+            return IR_DECODE_ERR_NEC_LEN;
         }
-        else if(count > 33)
-        {
-            // 如果不是单帧NEC，则判断是否重复帧NEC
-            if((IR_IsNear(ir_cap_read->data[34].mark, 9000)) && (IR_IsNear(ir_cap_read->data[34].space, 2500)))
-            {
-                ir_decoded.protocol = IR_PROTOCOL_NEC;
-            }
-            else
-            {
-                ir_decoded.protocol = IR_PROTOCOL_UNKNOWN;
-            }
-        }
-        
+        ir_decoded.protocol = IR_PROTOCOL_NEC;
     }
     else if (IR_IsNear(ir_cap_read->data[0].mark, AEHA_START_MARK) &&
              IR_IsNear(ir_cap_read->data[0].space, AEHA_START_SPACE))
@@ -462,6 +543,7 @@ IR_DecodeErr_t IR_DecodeFrame(void)
         case IR_PROTOCOL_UNKNOWN:
         {
             // 不解码，
+            return IR_DECODE_ERR_UNKNOWN_PROTO;
         }
 
     }
@@ -474,81 +556,96 @@ void IR_Poll(void)
 {
     IR_DecodeErr_t err;
 
+     /* 先处理最后收到的物理帧 */
+    if (ir_cap_read->capture_complete)
+    {
+        err = IR_DecodeFrame();
+
+        ir_cap_read->capture_complete = false;
+
+        if (err == IR_DECODE_OK)
+        {
+            IR_ProcessDecodedFrame();
+        }
+        else
+        {
+            printf("IR decode err=%d\r\n", err);
+        }
+    }
+
     // 检测超时标志：如果按键序列结束了，清空上一帧
     if (ir_sequence_timeout)
     {
         ir_sequence_timeout = false;
-        // 清空上一帧，下次收到相同按键也会被视为新按键
-        ir_last_frame.protocol = IR_PROTOCOL_UNKNOWN;
-        ir_last_frame.bit_count = 0;
+        IR_FinishEvent();
     }
 
-    if (!ir_cap_read->capture_complete) return;
-    ir_cap_read->capture_complete = false;
-    if (ir_ctrl.is_sending) return;      /* 自己发射的回声不学习 */
+    // if (!ir_cap_read->capture_complete) return;
+    // ir_cap_read->capture_complete = false;
+    // if (ir_ctrl.is_sending) return;      /* 自己发射的回声不学习 */
 
-    err = IR_DecodeFrame();
-    // IR_Poll 里, err 打印下面加:
-    printf("  count=%u:", ir_cap_read->complete_count);
-    for (uint16_t i = 0; i < ir_cap_read->complete_count; i++) {
-        printf(" %u/%u", ir_cap_read->data[i].mark, ir_cap_read->data[i].space);
-    }
-    printf("\r\n");
-    printf("  last pair [%u]: mark=%u space=%u\r\n", ir_cap_read->complete_count,
-           ir_cap_read->data[ir_cap_read->complete_count - 1].mark,
-           ir_cap_read->data[ir_cap_read->complete_count - 1].space);
+    // err = IR_DecodeFrame();
+    // // IR_Poll 里, err 打印下面加:
+    // printf("  count=%u:", ir_cap_read->complete_count);
+    // for (uint16_t i = 0; i < ir_cap_read->complete_count; i++) {
+    //     printf(" %u/%u", ir_cap_read->data[i].mark, ir_cap_read->data[i].space);
+    // }
+    // printf("\r\n");
+    // printf("  last pair [%u]: mark=%u space=%u\r\n", ir_cap_read->complete_count,
+    //        ir_cap_read->data[ir_cap_read->complete_count - 1].mark,
+    //        ir_cap_read->data[ir_cap_read->complete_count - 1].space);
 
-    if (err != IR_DECODE_OK)
-    {
-        printf("IR decode err=%d\r\n", err);
-        /* 临时调试: 看原始引导码 */
-        printf("  raw[0] mark=%u space=%u count=%u\r\n",
-               ir_cap_read->data[0].mark, ir_cap_read->data[0].space, ir_cap_read->complete_count);
-        return;
-    }
+    // if (err != IR_DECODE_OK)
+    // {
+    //     printf("IR decode err=%d\r\n", err);
+    //     /* 临时调试: 看原始引导码 */
+    //     printf("  raw[0] mark=%u space=%u count=%u\r\n",
+    //            ir_cap_read->data[0].mark, ir_cap_read->data[0].space, ir_cap_read->complete_count);
+    //     return;
+    // }
 
-    // 解码成功
-    // 判断是否是重复帧
-    bool is_repeat = false;
-    if (ir_last_frame.protocol == ir_decoded.protocol && ir_last_frame.bit_count == ir_decoded.bit_count)
-    {
-        // 向上取整
-         uint16_t byte_count = (ir_decoded.bit_count + 7) / 8;
-        if (memcmp(ir_last_frame.data, ir_decoded.data, byte_count) == 0)
-        {
-            is_repeat = true;
-        }
-    }
-    if (is_repeat)
-    {
-        // 重复帧：只增加计数
-        ir_decoded.repeat_count++;
-        printf("IR REPEAT frame, repeat_count=%u\r\n", ir_decoded.repeat_count);
-    }
-    else
-    {
-        // 新帧：重置计数并打印
-        ir_decoded.repeat_count = 0;
+    // // 解码成功
+    // // 判断是否是重复帧
+    // bool is_repeat = false;
+    // if (ir_last_frame.protocol == ir_decoded.protocol && ir_last_frame.bit_count == ir_decoded.bit_count)
+    // {
+    //     // 向上取整
+    //      uint16_t byte_count = (ir_decoded.bit_count + 7) / 8;
+    //     if (memcmp(ir_last_frame.data, ir_decoded.data, byte_count) == 0)
+    //     {
+    //         is_repeat = true;
+    //     }
+    // }
+    // if (is_repeat)
+    // {
+    //     // 重复帧：只增加计数
+    //     ir_decoded.repeat_count++;
+    //     printf("repeat=%u\r\n", ir_decoded.repeat_count);
+    // }
+    // else
+    // {
+    //     // 新帧：重置计数并打印
+    //     ir_decoded.repeat_count = 0;
 
-        printf("IR proto=%d bits=%d data:", ir_decoded.protocol, ir_decoded.bit_count);
-        for (uint16_t i = 0; i < (ir_decoded.bit_count + 7) / 8; i++)
-        {
-            printf(" %02X", ir_decoded.data[i]);
-        }
-        printf("\r\n");
+    //     printf("IR proto=%d bits=%d data:", ir_decoded.protocol, ir_decoded.bit_count);
+    //     for (uint16_t i = 0; i < (ir_decoded.bit_count + 7) / 8; i++)
+    //     {
+    //         printf(" %02X", ir_decoded.data[i]);
+    //     }
+    //     printf("\r\n");
 
-        /* 调试: Sony 单发时显示最后一位的 mark */
-        if (ir_decoded.protocol == IR_PROTOCOL_SONY) {
-            printf("  tail mark=%u\r\n", ir_cap_read->data[ir_cap_read->complete_count].mark);
-        }
+    //     /* 调试: Sony 单发时显示最后一位的 mark */
+    //     if (ir_decoded.protocol == IR_PROTOCOL_SONY) {
+    //         printf("  tail mark=%u\r\n", ir_cap_read->data[ir_cap_read->complete_count].mark);
+    //     }
 
-        // 保存当前帧用于下次比对
-        memcpy(&ir_last_frame, &ir_decoded, sizeof(IR_Decoded_t));
-    }
+    //     // 保存当前帧用于下次比对
+    //     memcpy(&ir_last_frame, &ir_decoded, sizeof(IR_Decoded_t));
+    // }
 
-    // 清空解码缓冲区
-    memset(ir_decoded.data, 0, sizeof(ir_decoded.data));
-    ir_decoded.bit_count = 0;
+    // // 清空解码缓冲区
+    // memset(ir_decoded.data, 0, sizeof(ir_decoded.data));
+    // ir_decoded.bit_count = 0;
 }
 
 
@@ -565,7 +662,7 @@ void TIM5_IRQHandler(void)
 
         if (++timeout_cnt >= 2)  // 溢出2次 = 130ms
         {
-            if (started && ir_cap_write->count >= IR_MIN_PAIRS)
+            if (started && ir_cap_write->count >= 1) // 这里ir_cap_write->count必须>=1(不然会丢NEC的repeat)
             {
                 // 如果超时了，认为已经接收完成，这时候需要交换缓冲区
             ir_cap_write->complete_count = ir_cap_write->count;
@@ -623,7 +720,8 @@ void TIM5_IRQHandler(void)
                // 至少不是第一个
                 // 获取上一个的space时间
                 uint16_t last_space = ir_cap_write->data[ir_cap_write->count - 1].space;
-                if(IsLeaderMark(mark_time) && (last_space >= 3000) && ir_cap_write->count >= IR_MIN_PAIRS)
+                //这里ir_cap_write->count必须>=1(不然会丢NEC的repeat)
+                if(IsLeaderMark(mark_time) && (last_space >= 3000) && ir_cap_write->count >= 1)
                 {
                     // 说明是重复帧,退出来解码，但是下一帧的mark已经捕获我们不能丢弃，存下来
                     ir_cap_write->complete_count = ir_cap_write->count - 1;  /* 先把帧长存下来再清零 */

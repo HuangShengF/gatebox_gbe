@@ -239,16 +239,16 @@ int main(void)
         // }
         
         // gbe_protocol_poll();
-        //   IR_Poll();
+           IR_Poll();
         // switch(cnt)
         // {
 
         // }
 
-       AEHA_switch(cnt);
-       IR_SendData(IR_PROTOCOL_AEHA, (uint8_t *)aeha_data, 48);
-       cnt++;
-       cnt %= 10;
+//       AEHA_switch(cnt);
+//       IR_SendData(IR_PROTOCOL_AEHA, (uint8_t *)aeha_data, 48);
+//       cnt++;
+//       cnt %= 10;
         
         //IR_SendData(IR_PROTOCOL_SONY, (uint8_t *)sony_data, 12);
         // IR_SendData(IR_PROTOCOL_SONY, (uint8_t *)nec_data, 32);
@@ -264,7 +264,7 @@ int main(void)
         //     last_right = right;
         // }
 
-         delay_xms(1500);
+         //delay_xms(1500);
     }
 }
 
