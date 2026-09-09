@@ -43,6 +43,7 @@ typedef enum
 #define NEC_BIT1_SPACE      1690
 #define NEC_BIT0_SPACE      560
 #define NEC_STOP_MARK       560
+#define NEC_REPEAT_SPACE    2250
 
 /* AEHA协议时序 (us) */
 #define AEHA_START_MARK     3400
@@ -75,5 +76,7 @@ void IR_Init(void);
 void IR_Start(void);
 void IR_Stop(void);
 void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits);
+void IR_SendNecRepeat(void);
+uint8_t IR_IsSending(void);
 void IR_Poll(void);
 #endif

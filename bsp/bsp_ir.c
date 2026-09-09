@@ -10,7 +10,8 @@ typedef struct
     const uint8_t *data;  // 字节数组指针
     uint16_t bit_count;   // 总位数
     uint16_t current_bit; // 当前位索引
-    uint8_t is_sending;
+    volatile uint8_t is_sending;
+    uint8_t nec_repeat_frame;
 } IR_Control_t;
 
 static IR_Control_t ir_ctrl = {
@@ -19,7 +20,8 @@ static IR_Control_t ir_ctrl = {
     .data = NULL,
     .bit_count = 0,
     .current_bit = 0,
-    .is_sending = 0};
+    .is_sending = 0,
+    .nec_repeat_frame = 0};
 
 /**************接受中断保存raw data 到数组 *********/ 
 typedef struct
@@ -274,6 +276,7 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
     ir_ctrl.current_bit = 0;
     ir_ctrl.state = IR_STATE_START_MARK;
     ir_ctrl.is_sending = 1;
+    ir_ctrl.nec_repeat_frame = 0;
 
     // 问题4修复：根据协议切换载波频率
     if (protocol == IR_PROTOCOL_SONY)
@@ -310,6 +313,33 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
     IR_SetTimerPeriod(start_mark_time);
     // 开始发送起始码的Mark部分
     IR_Start();
+}
+
+/* 发送NEC专用重复帧：9ms Mark + 2.25ms Space + 560us Mark */
+void IR_SendNecRepeat(void)
+{
+    if (ir_ctrl.is_sending)
+    {
+        return;
+    }
+
+    ir_ctrl.protocol = IR_PROTOCOL_NEC;
+    ir_ctrl.data = NULL;
+    ir_ctrl.bit_count = 0U;
+    ir_ctrl.current_bit = 0U;
+    ir_ctrl.state = IR_STATE_START_MARK;
+    ir_ctrl.nec_repeat_frame = 1U;
+    ir_ctrl.is_sending = 1U;
+
+    TIM2->AR = 631U;
+    TIM2->CCDAT3 = (TIM2->AR + 1U) / 3U;
+    IR_SetTimerPeriod(NEC_START_MARK);
+    IR_Start();
+}
+
+uint8_t IR_IsSending(void)
+{
+    return ir_ctrl.is_sending;
 }
 
 #define IR_TIMING_TOLERANCE_PERCENT 35U
@@ -805,7 +835,14 @@ void TIM6_IRQHandler(void)
             }
             else if (ir_ctrl.protocol == IR_PROTOCOL_NEC)
             {
-                space_time = NEC_START_SPACE;
+                if (ir_ctrl.nec_repeat_frame != 0U)
+                {
+                    space_time = NEC_REPEAT_SPACE;
+                }
+                else
+                {
+                    space_time = NEC_START_SPACE;
+                }
             }
             else
             {
@@ -815,6 +852,15 @@ void TIM6_IRQHandler(void)
             break;
 
         case IR_STATE_START_SPACE:
+            if (ir_ctrl.nec_repeat_frame != 0U)
+            {
+                /* NEC重复帧没有数据位，Space后直接发送结束Mark */
+                ir_ctrl.state = IR_STATE_STOP;
+                IR_SetTimerPeriod(NEC_STOP_MARK);
+                IR_Start();
+                break;
+            }
+
             // 起始码Space结束，进入数据位Mark
             ir_ctrl.state = IR_STATE_DATA_MARK;
 
