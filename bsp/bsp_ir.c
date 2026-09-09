@@ -12,6 +12,9 @@ typedef struct
     uint16_t current_bit; // 当前位索引
     volatile uint8_t is_sending;
     uint8_t nec_repeat_frame;
+
+    uint8_t repeat_total; /* 总发射次数 */
+    uint8_t repeat_done;  /* 已完成发射次数 */
 } IR_Control_t;
 
 static IR_Control_t ir_ctrl = {
@@ -21,8 +24,10 @@ static IR_Control_t ir_ctrl = {
     .bit_count = 0,
     .current_bit = 0,
     .is_sending = 0,
-    .nec_repeat_frame = 0};
-
+    .nec_repeat_frame = 0,
+    .repeat_total = 0,
+    .repeat_done = 0
+};
 /**************接受中断保存raw data 到数组 *********/ 
 typedef struct
 {
@@ -263,7 +268,7 @@ static void IR_SetTimerPeriod(uint16_t period_us)
 }
 
 /* 发送红外数据 */
-void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
+void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits, uint8_t repeat_count)
 {
     if (ir_ctrl.is_sending)
     {
@@ -277,6 +282,8 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits)
     ir_ctrl.state = IR_STATE_START_MARK;
     ir_ctrl.is_sending = 1;
     ir_ctrl.nec_repeat_frame = 0;
+    ir_ctrl.repeat_total = repeat_count;
+    ir_ctrl.repeat_done = 0;
 
     // 问题4修复：根据协议切换载波频率
     if (protocol == IR_PROTOCOL_SONY)

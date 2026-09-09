@@ -34,8 +34,6 @@ typedef enum
 } IR_DecodeErr_t;
 
 
-
-
 /* NEC协议时序 (us) */
 #define NEC_START_MARK      9000
 #define NEC_START_SPACE     4500
@@ -59,6 +57,7 @@ typedef enum
 #define SONY_BIT0_MARK      600
 #define SONY_BIT_SPACE      600
 
+/*学习遥控器的指令组帧发给PC*/
 typedef struct
 {
     IR_Protocol_t protocol;
@@ -66,16 +65,14 @@ typedef struct
     uint8_t repeat_count;
     const uint8_t *data;
 } IR_ReceiveEvent_t;
-
 typedef void (*IR_ReceiveCallback_t)(const IR_ReceiveEvent_t *event);
-
 void IR_RegisterReceiveCallback(IR_ReceiveCallback_t callback);
 
 
 void IR_Init(void);
 void IR_Start(void);
 void IR_Stop(void);
-void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits);
+void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits, uint8_t repeat_count);
 void IR_SendNecRepeat(void);
 uint8_t IR_IsSending(void);
 void IR_Poll(void);
