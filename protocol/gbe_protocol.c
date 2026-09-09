@@ -55,7 +55,13 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
     {
         /* code */
         // 地址16位，data8位
-        uint8_t sony_buf[3] = {0};
+        /*
+
+        * 检查Data高位为0
+        * 检查Bit Count是12/15/20
+        * 检查Address未使用高位为0
+        * 检查Repeat Count不为0
+        */
         break;
     }
 
@@ -94,15 +100,26 @@ static void gbe_protocol_ir_receive(const IR_ReceiveEvent_t *event)
             {
                 return;
             }
-            // 因为AEHA这个总位数是包括用户码的，所以需要减去16位
-            uint16_t data_bit_count = event->bit_count - 16;
+            // 因为AEHA这个总位数是包括用户码的，所以需要减去16位，还要减去检验码4位
+            uint16_t data_bit_count = event->bit_count - 16 - 4;
             uint16_t data_byte_count = (data_bit_count + 7) / 8; //有效数据的个数
+            uint16_t raw_byte_count = (event->bit_count + 7U) / 8U;
             payload[0] = (uint8_t)IR_PROTOCOL_AEHA;
             payload[1] = event->data[0];
             payload[2] = event->data[1];
             payload[3] = (uint8_t)(data_bit_count & 0xFFU);
             payload[4] = (uint8_t)(data_bit_count >> 8);
-            memcpy(&payload[5], &event->data[2], data_byte_count);
+
+            for(uint16_t i = 0; i < data_byte_count; i++)
+            {
+                payload[5U + i] =(uint8_t)(event->data[2U + i] >> 4);
+                if ((3U + i) < raw_byte_count)
+                {
+                    payload[5U + i] |=(uint8_t)(event->data[3U + i] << 4);
+                }
+            }
+
+            // memcpy(&payload[5], &event->data[2], data_byte_count);
             payload[5 + data_byte_count] = event->repeat_count;
             payload_size = 6 + data_byte_count;
             break;
