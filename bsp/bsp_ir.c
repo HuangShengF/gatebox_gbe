@@ -14,7 +14,10 @@ typedef struct
     uint8_t nec_repeat_frame;
 
     uint8_t repeat_total; /* 总发射次数 */
-    uint8_t repeat_done;  /* 已完成发射次数 */
+    volatile uint8_t repeat_done; /* 已完成发射次数，TIM6更新 */
+    volatile uint8_t frame_done;  /* 单帧完成后，由主循环安排重发 */
+    uint16_t frame_start_ms;
+    volatile uint16_t frame_end_ms;
 } IR_Control_t;
 
 static IR_Control_t ir_ctrl = {
@@ -101,6 +104,20 @@ static IR_RxFrame_t * volatile ir_cap_read = &ir_cap_B;
 
 /* 微秒转定时器计数值 (TIM6: 24MHz / 24 = 1MHz, 1us per tick) */
 #define US_TO_TICKS(us) (us)
+
+/* 起始到起始的参考周期；AEHA长帧还需保证结束后的静默时间。 */
+#define IR_NEC_REPEAT_PERIOD_MS   108U
+#define IR_AEHA_REPEAT_PERIOD_MS  130U
+#define IR_SONY_REPEAT_PERIOD_MS  45U
+#define IR_AEHA_MIN_GAP_MS        8U
+/* 当前最多1280bit，最长单帧约2.2s，留出中断延迟余量。 */
+#define IR_TX_FRAME_TIMEOUT_MS    3000U
+
+/* 复用工程的TIM7毫秒计时，发送前必须已调用gbe_protocol_init()。 */
+static uint16_t IR_GetMs(void)
+{
+    return TIM_GetCnt(TIM7);
+}
 
 void IR_PWM_Init(void)
 {
@@ -267,43 +284,28 @@ static void IR_SetTimerPeriod(uint16_t period_us)
     TIM_Enable(TIM6, ENABLE);
 }
 
-/* 发送红外数据 */
-void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits, uint8_t repeat_count)
+/* 启动一个物理帧；任务参数、计数和数据指针在重发时保留。 */
+static void IR_StartFrame(void)
 {
-    if (ir_ctrl.is_sending)
-    {
-        return; // 正在发送中
-    }
+    uint16_t start_mark_time;
 
-    ir_ctrl.protocol = protocol;
-    ir_ctrl.data = data;
-    ir_ctrl.bit_count = bits;
-    ir_ctrl.current_bit = 0;
+    ir_ctrl.current_bit = 0U;
     ir_ctrl.state = IR_STATE_START_MARK;
-    ir_ctrl.is_sending = 1;
-    ir_ctrl.nec_repeat_frame = 0;
-    ir_ctrl.repeat_total = repeat_count;
-    ir_ctrl.repeat_done = 0;
+    ir_ctrl.frame_done = 0U;
 
     // 问题4修复：根据协议切换载波频率
-    if (protocol == IR_PROTOCOL_SONY)
+    if (ir_ctrl.protocol == IR_PROTOCOL_SONY)
     {
-        // Sony: 40kHz, 24MHz / 600 = 40kHz
-        TIM2->AR = 600;
-        //TIM2->CCDAT3 = 300; // 1/2 占空比
-        // TIM2->CCDAT3 = 200; // 1/2 占空比
-        TIM2->CCDAT3 = (TIM2->AR + 1U)  / 3;
+        // 保留现有Sony载波配置
+        TIM2->AR = 600U;
     }
     else
     {
         // NEC/AEHA: 38kHz, 24MHz / 632 = 37.97kHz
-        TIM2->AR = 631;
-        // TIM2->CCDAT3 = 211;
-        TIM2->CCDAT3 = (TIM2->AR + 1U)  / 3;
+        TIM2->AR = 631U;
     }
 
-    uint16_t start_mark_time = 0;
-    switch (protocol)
+    switch (ir_ctrl.protocol)
     {
     case IR_PROTOCOL_NEC:
         start_mark_time = NEC_START_MARK;
@@ -314,12 +316,51 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits, uin
     case IR_PROTOCOL_SONY:
         start_mark_time = SONY_START_MARK;
         break;
+    default:
+        return; /* 公开入口已验证协议 */
     }
 
+    ir_ctrl.frame_start_ms = IR_GetMs();
     // 设置TIM6定时器的ARR值，到达这个值会触发中断，也就是header发射完成触发中断
     IR_SetTimerPeriod(start_mark_time);
     // 开始发送起始码的Mark部分
     IR_Start();
+}
+
+/* 主循环调用；缓冲区必须保持有效且不变，直到IR_IsSending()返回0。 */
+void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits, uint8_t repeat_count)
+{
+    if (ir_ctrl.is_sending != 0U)
+    {
+        return;
+    }
+    if ((data == NULL) || (repeat_count == 0U))
+    {
+        return;
+    }
+    switch (protocol)
+    {
+    case IR_PROTOCOL_NEC:
+        if (bits != 32U) return;
+        break;
+    case IR_PROTOCOL_AEHA:
+        if ((bits < 48U) || (bits > 1280U)) return;
+        break;
+    case IR_PROTOCOL_SONY:
+        if ((bits != 12U) && (bits != 15U) && (bits != 20U)) return;
+        break;
+    default:
+        return;
+    }
+
+    ir_ctrl.protocol = protocol;
+    ir_ctrl.data = data;
+    ir_ctrl.bit_count = bits;
+    ir_ctrl.repeat_total = repeat_count;
+    ir_ctrl.repeat_done = 0U;
+    ir_ctrl.nec_repeat_frame = 0U;
+    ir_ctrl.is_sending = 1U;
+    IR_StartFrame();
 }
 
 /* 发送NEC专用重复帧：9ms Mark + 2.25ms Space + 560us Mark */
@@ -333,20 +374,92 @@ void IR_SendNecRepeat(void)
     ir_ctrl.protocol = IR_PROTOCOL_NEC;
     ir_ctrl.data = NULL;
     ir_ctrl.bit_count = 0U;
-    ir_ctrl.current_bit = 0U;
-    ir_ctrl.state = IR_STATE_START_MARK;
+    ir_ctrl.repeat_total = 1U;
+    ir_ctrl.repeat_done = 0U;
     ir_ctrl.nec_repeat_frame = 1U;
     ir_ctrl.is_sending = 1U;
-
-    TIM2->AR = 631U;
-    TIM2->CCDAT3 = (TIM2->AR + 1U) / 3U;
-    IR_SetTimerPeriod(NEC_START_MARK);
-    IR_Start();
+    IR_StartFrame();
 }
 
 uint8_t IR_IsSending(void)
 {
     return ir_ctrl.is_sending;
+}
+
+/* 超时退出时repeat_done不足，不能向PC报告发送成功。 */
+uint8_t IR_TxSucceeded(void)
+{
+    return (ir_ctrl.is_sending == 0U) &&
+           (ir_ctrl.repeat_total != 0U) &&
+           (ir_ctrl.repeat_done == ir_ctrl.repeat_total);
+}
+
+/* 仅在TIM6中断调用：停住这一帧，Busy由主循环在整个任务结束时清除。 */
+static void IR_CurrentFrameComplete(void)
+{
+    IR_Stop();
+    TIM_Enable(TIM6, DISABLE);
+    TIM_ClrIntPendingBit(TIM6, TIM_INT_UPDATE);
+    ir_ctrl.state = IR_STATE_IDLE;
+    ir_ctrl.frame_end_ms = IR_GetMs();
+    ir_ctrl.repeat_done++;
+    ir_ctrl.frame_done = 1U;
+}
+
+/* 主循环调度重发，帧内波形仍由TIM6控制。 */
+static void IR_TransmitPoll(void)
+{
+    uint16_t now;
+    uint16_t period_ms;
+    uint16_t min_gap_ms;
+
+    if (ir_ctrl.is_sending == 0U)
+    {
+        return;
+    }
+    if (ir_ctrl.frame_done == 0U)
+    {
+        now = IR_GetMs();
+        if ((uint16_t)(now - ir_ctrl.frame_start_ms) >= IR_TX_FRAME_TIMEOUT_MS)
+        {
+            /* 与完成中断互斥，避免临界点将已完成的帧误判为超时。 */
+            NVIC_DisableIRQ(TIM6_IRQn);
+            if (ir_ctrl.frame_done == 0U)
+            {
+                IR_Stop();
+                TIM_Enable(TIM6, DISABLE);
+                TIM_ClrIntPendingBit(TIM6, TIM_INT_UPDATE);
+                NVIC_ClearPendingIRQ(TIM6_IRQn);
+                ir_ctrl.state = IR_STATE_IDLE;
+                ir_ctrl.data = NULL;
+                ir_ctrl.is_sending = 0U;
+            }
+            NVIC_EnableIRQ(TIM6_IRQn);
+        }
+        return;
+    }
+
+    if (ir_ctrl.repeat_done >= ir_ctrl.repeat_total)
+    {
+        ir_ctrl.frame_done = 0U;
+        ir_ctrl.data = NULL;
+        ir_ctrl.is_sending = 0U;
+        return;
+    }
+
+    period_ms = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ? IR_NEC_REPEAT_PERIOD_MS :
+                (ir_ctrl.protocol == IR_PROTOCOL_AEHA) ? IR_AEHA_REPEAT_PERIOD_MS :
+                                                       IR_SONY_REPEAT_PERIOD_MS;
+    min_gap_ms = (ir_ctrl.protocol == IR_PROTOCOL_AEHA) ? IR_AEHA_MIN_GAP_MS : 1U;
+    now = IR_GetMs();
+    if (((uint16_t)(now - ir_ctrl.frame_start_ms) < period_ms) ||
+        ((uint16_t)(now - ir_ctrl.frame_end_ms) <= min_gap_ms))
+    {
+        return; /* 多等一拍，避免毫秒取整缩短最小静默时间 */
+    }
+
+    ir_ctrl.nec_repeat_frame = (ir_ctrl.protocol == IR_PROTOCOL_NEC) ? 1U : 0U;
+    IR_StartFrame();
 }
 
 #define IR_TIMING_TOLERANCE_PERCENT 35U
@@ -610,6 +723,8 @@ void IR_Poll(void)
     IR_DecodeErr_t err;
     IR_RxFrame_t *frame = NULL;
     bool sequence_timeout = false;
+
+    IR_TransmitPoll();
 
     /* 原子领取完整帧和超时标志，避免最后一帧被拆成新事件 */
     NVIC_DisableIRQ(TIM5_IRQn);
@@ -939,10 +1054,7 @@ void TIM6_IRQHandler(void)
                 else
                 {
                     // Sony没有停止位，直接结束
-                    IR_Stop();
-                    TIM_Enable(TIM6, DISABLE);
-                    ir_ctrl.is_sending = 0;
-                    ir_ctrl.state = IR_STATE_IDLE;
+                    IR_CurrentFrameComplete();
                     return;
                 }
                 IR_SetTimerPeriod(stop_time);
@@ -972,10 +1084,7 @@ void TIM6_IRQHandler(void)
 
         case IR_STATE_STOP:
             // 停止位发送完成
-            IR_Stop();
-            TIM_Enable(TIM6, DISABLE);
-            ir_ctrl.is_sending = 0;
-            ir_ctrl.state = IR_STATE_IDLE;
+            IR_CurrentFrameComplete();
             break;
 
         default:

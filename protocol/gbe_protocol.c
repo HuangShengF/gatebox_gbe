@@ -8,7 +8,7 @@
 
 typedef struct
 {
-    // GBE_IR_TxState_t state;
+    uint8_t pending; /* 从接受请求到完成响应入队，期间不接受新红外请求 */
     uint16_t sequence;
 
     /*
@@ -51,17 +51,17 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
 {
     uint8_t repeat_count;
 
-    if (frame == NULL || frame->payload == NULL)
+    if (frame == NULL)
     {
         return;
     }
 
-    if (IR_IsSending() != 0U)
+    if ((g_ir_tx.pending != 0U) || (IR_IsSending() != 0U))
     {
         gb_protocol_send_error(frame, ERR_BUSY, 0U);
         return;
     }
-    if (frame->payload_size < 1U)
+    if ((frame->payload == NULL) || (frame->payload_size < 1U))
     {
         gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 0U);
         return;
@@ -78,9 +78,9 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
             return;
         }
         repeat_count = frame->payload[4];
-        if ((frame->payload_size != 5) || (repeat_count == 0))
+        if (repeat_count == 0U)
         {
-            gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
             return;
         }
 
@@ -90,7 +90,7 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
         g_ir_tx.ir_tx_data[3] = (uint8_t)(~frame->payload[3]);
         g_ir_tx.sequence = frame->sequence;
 
-        IR_SendData(IR_PROTOCOL_NEC, g_ir_tx.ir_tx_data, 32, repeat_count); // 最后一个参数是bit数
+        IR_SendData(IR_PROTOCOL_NEC, g_ir_tx.ir_tx_data, 32U, repeat_count);
         break;
     }
 
@@ -190,6 +190,11 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
         repeat_count = frame->payload[5];
         uint16_t address_mask;
         uint32_t raw_data;
+        if (((data & 0x80U) != 0U) || (repeat_count == 0U))
+        {
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
+            return;
+        }
         switch (bit_count)
         {
         case 12U:
@@ -228,8 +233,43 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
     }
 
     default:
-        break;
+        gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
+        return;
     }
+
+    if (IR_IsSending() == 0U)
+    {
+        gb_protocol_send_error(frame, ERR_INTERNAL, 0U);
+        return;
+    }
+    g_ir_tx.pending = 1U;
+}
+
+/* 不保存接收帧指针；请求缓冲区在下一次USB接收时可能已被覆盖。 */
+static bool gbe_protocol_ir_transmit_poll(void)
+{
+    Frame_t request = {0};
+    bool sent;
+
+    if ((g_ir_tx.pending == 0U) || (IR_IsSending() != 0U))
+    {
+        return true;
+    }
+    request.command = CMD_IR_SEND_REQ;
+    request.sequence = g_ir_tx.sequence;
+    if (IR_TxSucceeded() != 0U)
+    {
+        sent = gb_protocol_send_response(&request, NULL, 0U);
+    }
+    else
+    {
+        sent = gb_protocol_send_error(&request, ERR_INTERNAL, 0U);
+    }
+    if (sent)
+    {
+        g_ir_tx.pending = 0U;
+    }
+    return sent; /* USB队列满时保留请求，下次轮询再提交响应 */
 }
 
 static gb_request_callback_t gb_callback[2] = {NULL};
@@ -423,6 +463,10 @@ static void gbe_protocol_upload_motion(void)
 
 void gbe_protocol_poll(void)
 {
+    if (!gbe_protocol_ir_transmit_poll())
+    {
+        return; /* 优先提交完成响应 */
+    }
     gbe_protocol_upload_ambient_light();
     // gbe_protocol_upload_motion();
 }

@@ -14,7 +14,7 @@ void IR_Example(void)
 
     static const uint8_t sony_data[2] = {0x95, 0x00};
 
-    IR_SendData(IR_PROTOCOL_SONY, sony_data, 12);
+    IR_SendData(IR_PROTOCOL_SONY, sony_data, 12U, 1U);
     delay_xms(100);
 }
 
@@ -26,11 +26,12 @@ void IR_Example(void)
 void IR_SendNEC(uint8_t addr, uint8_t cmd)
 {
     static uint8_t nec_buffer[4];
+    if (IR_IsSending() != 0U) return;
     nec_buffer[0] = addr;
     nec_buffer[1] = ~addr;
     nec_buffer[2] = cmd;
     nec_buffer[3] = ~cmd;
-    IR_SendData(IR_PROTOCOL_NEC, nec_buffer, 32);
+    IR_SendData(IR_PROTOCOL_NEC, nec_buffer, 32U, 1U);
 }
 
 /**
@@ -41,8 +42,9 @@ void IR_SendNEC(uint8_t addr, uint8_t cmd)
 void IR_SendSony12(uint8_t cmd, uint8_t addr)
 {
     static uint8_t sony_buffer[2];
+    if (IR_IsSending() != 0U) return;
     uint16_t data = (uint16_t)(cmd & 0x7F) | ((addr & 0x1F) << 7);
     sony_buffer[0] = data & 0xFF;
     sony_buffer[1] = (data >> 8) & 0xFF;
-    IR_SendData(IR_PROTOCOL_SONY, sony_buffer, 12);
+    IR_SendData(IR_PROTOCOL_SONY, sony_buffer, 12U, 1U);
 }

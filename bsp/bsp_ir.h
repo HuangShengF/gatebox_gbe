@@ -72,8 +72,14 @@ void IR_RegisterReceiveCallback(IR_ReceiveCallback_t callback);
 void IR_Init(void);
 void IR_Start(void);
 void IR_Stop(void);
+/* 主循环调用，repeat_count为总次数1~255；需定期调用IR_Poll()推进重发。
+ * 使用工程已有TIM7毫秒计时，先完成gbe_protocol_init()。
+ * data在整个任务结束前必须有效且不变；Busy或参数无效时不启动。
+ */
 void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits, uint8_t repeat_count);
 void IR_SendNecRepeat(void);
 uint8_t IR_IsSending(void);
+/* IR_IsSending()==0后查询，单帧超时返回0，下一次发送会覆盖结果。 */
+uint8_t IR_TxSucceeded(void);
 void IR_Poll(void);
 #endif

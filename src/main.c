@@ -218,16 +218,12 @@ int main(void)
         // printf("hello world\n");
         // IR_Example();
         // delay_xms(2000);
-       do
-       {
-           cdc_rx_length =
-               USB_CDC_Read(cdc_rx_data, sizeof(cdc_rx_data));
-
-           for (i = 0; i < cdc_rx_length; i++)
-           {
-               gb_protocol_process_byte(cdc_rx_data[i]);
-           }
-       } while (cdc_rx_length != 0U);
+        /* 每轮处理最多64字节，持续收包也能及时轮询红外重发。 */
+        cdc_rx_length = USB_CDC_Read(cdc_rx_data, sizeof(cdc_rx_data));
+        for (i = 0; i < cdc_rx_length; i++)
+        {
+            gb_protocol_process_byte(cdc_rx_data[i]);
+        }
         // int ret = LTR329_CalculateLux(LTR329_GAIN_1X, LTR329_INT_100MS, 1.0, &lux);
         // if(ret == LTR329_OK)
         // {
@@ -238,8 +234,8 @@ int main(void)
         //     printf("error: %d\n", ret);
         // }
         
-         gbe_protocol_poll();
-           IR_Poll();
+        IR_Poll();
+        gbe_protocol_poll();
         // switch(cnt)
         // {
 
