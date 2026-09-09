@@ -385,8 +385,15 @@ static void IR_ProcessDecodedFrame(void)
     // }
 }
 
+static IR_ReceiveCallback_t ir_receive_callback = NULL;
+
+void IR_RegisterReceiveCallback(IR_ReceiveCallback_t callback)
+{
+    ir_receive_callback = callback;
+}
 static void IR_FinishEvent(void)
 {
+    IR_ReceiveEvent_t event_data;
     uint16_t byte_count;
 
     if (ir_last_frame.protocol == IR_PROTOCOL_UNKNOWN)
@@ -407,7 +414,16 @@ static void IR_FinishEvent(void)
 
     printf("\r\n");
 
-    /* 后续根据protocol生成0x2401通知 */
+    
+    event_data.bit_count = ir_last_frame.bit_count;
+    event_data.data = ir_last_frame.data;
+    event_data.protocol = ir_last_frame.protocol;
+    event_data.repeat_count = ir_last_frame.repeat_count;
+    // 调用上层通知回调
+    if(ir_receive_callback != NULL)
+    {
+        ir_receive_callback(&event_data);
+    }
 
     memset(&ir_last_frame, 0, sizeof(ir_last_frame));
     ir_last_frame.protocol = IR_PROTOCOL_UNKNOWN;

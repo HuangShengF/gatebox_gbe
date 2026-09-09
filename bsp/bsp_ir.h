@@ -58,6 +58,19 @@ typedef enum
 #define SONY_BIT0_MARK      600
 #define SONY_BIT_SPACE      600
 
+typedef struct
+{
+    IR_Protocol_t protocol;
+    uint16_t bit_count;
+    uint8_t repeat_count;
+    const uint8_t *data;
+} IR_ReceiveEvent_t;
+
+typedef void (*IR_ReceiveCallback_t)(const IR_ReceiveEvent_t *event);
+
+void IR_RegisterReceiveCallback(IR_ReceiveCallback_t callback);
+
+
 void IR_Init(void);
 void IR_Start(void);
 void IR_Stop(void);

@@ -4,7 +4,7 @@
 #include "bsp_ltr329.h"
 #include "log.h"
 #include "bsp_ir.h"
-
+#include <string.h>
 static void gbe_protocol_pc_request_motion(const Frame_t *frame)
 {
     uint8_t response[2];
@@ -31,6 +31,7 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
     switch (format)
     {
     case IR_PROTOCOL_NEC:
+    {
         /* code */
         uint8_t nec_buf[4] = {0};
         nec_buf[0] = frame->payload[1];
@@ -41,20 +42,125 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
         // IR_SendData(IR_PROTOCOL_NEC, nec_buf, 4);
 
         break;
+    }
+
     case IR_PROTOCOL_AEHA:
+    {
+
         /* code */
         break;
+    }
+
     case IR_PROTOCOL_SONY:
+    {
         /* code */
         // 地址16位，data8位
         uint8_t sony_buf[3] = {0};
         break;
+    }
+
     default:
         break;
     }
 }
 
 static gb_request_callback_t gb_callback[2] = {NULL};
+uint8_t payload[164] = {0};
+static void gbe_protocol_ir_receive(const IR_ReceiveEvent_t *event)
+{ 
+   uint8_t payload_size = 0;
+
+    switch(event->protocol)
+    {
+        case IR_PROTOCOL_NEC:
+        {
+            /* code */
+            payload[0] = IR_PROTOCOL_NEC;
+            payload[1] = event->data[0];
+            payload[2] = event->data[1];
+            payload[3] = event->data[2];
+            payload[4] = event->repeat_count;
+            payload_size = 5;
+            break;
+        }
+
+
+        case IR_PROTOCOL_AEHA:
+        {
+ /* code */
+
+            if ((event->bit_count < 48U) ||
+                (event->bit_count > 1280U))
+            {
+                return;
+            }
+            // 因为AEHA这个总位数是包括用户码的，所以需要减去16位
+            uint16_t data_bit_count = event->bit_count - 16;
+            uint16_t data_byte_count = (data_bit_count + 7) / 8; //有效数据的个数
+            payload[0] = (uint8_t)IR_PROTOCOL_AEHA;
+            payload[1] = event->data[0];
+            payload[2] = event->data[1];
+            payload[3] = (uint8_t)(data_bit_count & 0xFFU);
+            payload[4] = (uint8_t)(data_bit_count >> 8);
+            memcpy(&payload[5], &event->data[2], data_byte_count);
+            payload[5 + data_byte_count] = event->repeat_count;
+            payload_size = 6 + data_byte_count;
+            break;
+        }
+       
+
+        case IR_PROTOCOL_SONY:
+        {
+  /* code */
+            if(event->bit_count != 12 && event->bit_count != 15 && event->bit_count != 20)
+            {
+                return;
+            }
+            uint16_t address = 0;
+            uint8_t data = 0;
+            uint32_t raw = 0;
+            raw  = (uint32_t)event->data[0];
+            raw |= (uint32_t)event->data[1] << 8;
+            raw |= (uint32_t)event->data[2] << 16;
+
+            data = (uint8_t)(raw & 0x7F);
+            address = (uint16_t)(raw >> 7);
+
+            if(event->bit_count == 12)
+            {
+                address &= 0x1F;
+            }
+            else if(event->bit_count == 15)
+            {
+                address &= 0xFF;
+            }
+            else if(event->bit_count == 20)
+            {
+                address &= 0x1FFF;
+            }
+
+            // sony是先发送低7位数据在发送地址
+            payload[0] = (uint8_t)IR_PROTOCOL_SONY;
+            payload[1] = (uint8_t)(address & 0xFFU);
+            payload[2] = (uint8_t)(address >> 8);
+            payload[3] = data;
+            payload[4] = (uint8_t)event->bit_count;
+            payload[5] = event->repeat_count;
+            payload_size = 6U;
+
+            break;
+
+        }
+      
+        default:
+        {
+            return;
+        }
+    }
+
+        gb_protocol_send_notification(CMD_IR_RECEIVE_NOTIFY, payload, payload_size);
+
+}
 
 void gbe_protocol_init(void)
 {
@@ -64,6 +170,8 @@ void gbe_protocol_init(void)
     gb_callback[0] = gbe_protocol_pc_request_motion;
     gb_callback[1] = gbe_protocol_pc_request_ir_tansimit;
     gb_protocol_register_callback(gb_callback, 2);
+
+    IR_RegisterReceiveCallback(gbe_protocol_ir_receive);
 }
 
 // 每500ms上传测光数据

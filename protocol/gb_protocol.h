@@ -24,6 +24,9 @@
 #define CMD_IR_SEND_RESP       0x1402
 #define CMD_IR_SEND_ERR        0x3402
 
+// 接受到红外解码通知PC
+#define CMD_IR_RECEIVE_NOTIFY    0x2401
+
 // 环境光通知：MCU -> PC
 #define CMD_AMBIENT_LIGHT_NOTIFY    0x2301
 #define CMD_MOTION_NOTIFY           0x2302
