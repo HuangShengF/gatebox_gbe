@@ -10,7 +10,7 @@ typedef struct
 {
     // GBE_IR_TxState_t state;
     uint16_t sequence;
-
+    uint8_t pending; // 请求已接受，直到完成响应成功入队才清零
     /*
      * 必须是持久内存。
      * IR_SendData()会在TIM6中断中继续访问这里的数据。
@@ -51,17 +51,17 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
 {
     uint8_t repeat_count;
 
-    if (frame == NULL || frame->payload == NULL)
+    if (frame == NULL)
     {
         return;
     }
 
-    if (IR_IsSending() != 0U)
+    if (g_ir_tx.pending || IR_IsSending())
     {
         gb_protocol_send_error(frame, ERR_BUSY, 0U);
         return;
     }
-    if (frame->payload_size < 1U)
+    if (frame->payload == NULL || frame->payload_size < 1U)
     {
         gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 0U);
         return;
@@ -228,8 +228,16 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
     }
 
     default:
-        break;
+        gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
+        return;
     }
+
+    if (!IR_IsSending())
+    {
+        gb_protocol_send_error(frame, ERR_INTERNAL, 0U);
+        return;
+    }
+    g_ir_tx.pending = 1; // 参数有效且发送已启动，保留请求直到响应入队
 }
 
 static gb_request_callback_t gb_callback[2] = {NULL};
@@ -423,20 +431,39 @@ static void gbe_protocol_upload_motion(void)
 
 static bool gbe_protocol_ir_response_poll(void)
 {
-    
     Frame_t request = {0};
+    bool sent;
+
+    if((g_ir_tx.pending == 0) || IR_IsSending())
+    {
+        return true;
+    }
+    /* 保存的序号属于当前待响应请求，不依赖原接收缓冲区。 */
+    request.command = CMD_IR_SEND_REQ;
+    request.sequence = g_ir_tx.sequence;
     if(IR_Transimit_complete())
     {
         /* send_response会将请求命令0x0402转换为响应0x1402 */
-        request.command = CMD_IR_SEND_REQ;
-        request.sequence = g_ir_tx.sequence;
-        gb_protocol_send_response(&request, NULL, 0U);
+        sent = gb_protocol_send_response(&request, NULL, 0U);
     }
+    else
+    {
+        sent = gb_protocol_send_error(&request, ERR_INTERNAL, 0U);
+    }
+
+    if (sent)
+    {
+        g_ir_tx.pending = 0;
+    }
+    return sent; // 入队失败时保留pending，下轮重试
 }
 
 void gbe_protocol_poll(void)
 {
-    gbe_protocol_ir_response_poll();
+    if (!gbe_protocol_ir_response_poll())
+    {
+        return; // 优先提交红外完成响应
+    }
     gbe_protocol_upload_ambient_light();
     gbe_protocol_upload_motion();
 }

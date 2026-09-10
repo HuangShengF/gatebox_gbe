@@ -274,7 +274,7 @@ static void IR_SetTimerPeriod(uint16_t period_us)
 
 uint8_t IR_Transimit_complete(void)
 {
-    return (!ir_ctrl.is_sending) && (ir_ctrl.repeat_total == ir_ctrl.repeat_done);
+    return  (ir_ctrl.repeat_total != 0) && (!ir_ctrl.is_sending) && (ir_ctrl.repeat_total == ir_ctrl.repeat_done);
 }
 static void IR_FrameStart(void)
 {
