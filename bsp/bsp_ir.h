@@ -76,4 +76,5 @@ void IR_SendData(IR_Protocol_t protocol, const uint8_t *data, uint16_t bits, uin
 void IR_SendNecRepeat(void);
 uint8_t IR_IsSending(void);
 void IR_Poll(void);
+uint8_t IR_Transimit_complete(void);
 #endif

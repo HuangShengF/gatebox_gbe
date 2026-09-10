@@ -421,8 +421,22 @@ static void gbe_protocol_upload_motion(void)
     gb_protocol_send_notification(CMD_MOTION_NOTIFY, payload, 3);
 }
 
+static bool gbe_protocol_ir_response_poll(void)
+{
+    
+    Frame_t request = {0};
+    if(IR_Transimit_complete())
+    {
+        /* send_response会将请求命令0x0402转换为响应0x1402 */
+        request.command = CMD_IR_SEND_REQ;
+        request.sequence = g_ir_tx.sequence;
+        gb_protocol_send_response(&request, NULL, 0U);
+    }
+}
+
 void gbe_protocol_poll(void)
 {
+    gbe_protocol_ir_response_poll();
     gbe_protocol_upload_ambient_light();
-    // gbe_protocol_upload_motion();
+    gbe_protocol_upload_motion();
 }

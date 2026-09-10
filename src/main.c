@@ -238,8 +238,8 @@ int main(void)
         //     printf("error: %d\n", ret);
         // }
         
-         gbe_protocol_poll();
-           IR_Poll();
+        gbe_protocol_poll();
+        IR_Poll();
         // switch(cnt)
         // {
 
