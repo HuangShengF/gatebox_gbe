@@ -827,7 +827,7 @@ void TIM5_IRQHandler(void)
 
         if (started)
         {
-            if (++timeout_cnt >= 2U)  // 溢出2次，约130ms
+            if (++timeout_cnt >= 3U)  // 溢出2次，约130ms
             {
                 if (ir_cap_write->count >= 1U) // 这里count必须>=1，否则会丢NEC repeat
                 {
@@ -862,11 +862,19 @@ void TIM5_IRQHandler(void)
         {
             started = 1;
             TIM_SetCnt(TIM5, 0);
+            TIM_ClrIntPendingBit(TIM5, TIM_INT_UPDATE);
             timeout_cnt = 0;  // 新帧开始,重置超时计数
             return;
         }
+        
         ir_cap_write->data[ir_cap_write->count].space = TIM_GetCap1(TIM5);
+        if(timeout_cnt != 0 || (TIM_GetIntStatus(TIM5, TIM_INT_UPDATE) != RESET))
+        {
+            // 说明之前有发生过超时，超过65ms
+            ir_cap_write->data[ir_cap_write->count].space = 0xFFFF;
+        }
         TIM_SetCnt(TIM5, 0);
+        TIM_ClrIntPendingBit(TIM5, TIM_INT_UPDATE);
         timeout_cnt = 0;
         if (ir_cap_write->count < IR_MAX_EDGES - 1)
         {
@@ -905,6 +913,7 @@ void TIM5_IRQHandler(void)
                     ir_cap_write->data[0].mark = mark_time;
                     
                     TIM_SetCnt(TIM5, 0);
+                    TIM_ClrIntPendingBit(TIM5, TIM_INT_UPDATE);
                     timeout_cnt = 0;
                     return;
                 }
@@ -913,6 +922,7 @@ void TIM5_IRQHandler(void)
         }
 
         TIM_SetCnt(TIM5, 0);
+        TIM_ClrIntPendingBit(TIM5, TIM_INT_UPDATE);
         timeout_cnt = 0;  // 收到边沿,重置超时计数
     }
 }
