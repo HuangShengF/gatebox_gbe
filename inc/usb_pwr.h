@@ -68,5 +68,11 @@ USB_Result PowerOff(void);
 extern __IO uint32_t bDeviceState; /* USB device status */
 extern __IO bool fSuspendEnabled;  /* true when suspend is possible */
 
+uint32_t get_usb_state(void);
+#define USB_WAKEUP_DELAY_S 5U
+extern volatile uint8_t delay_s;
+void USB_WakeupRequestFromISR(void);
+void USB_WakeupOnSof(void);
+void USB_WakeupReset(void);
 #endif /*__USB_PWR_H__*/
 

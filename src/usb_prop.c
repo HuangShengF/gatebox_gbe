@@ -143,13 +143,17 @@ void Virtual_Com_Port_init(void)
  */
 void Virtual_Com_Port_Reset(void)
 {
+    // USB_WakeupReset();
     USB_CDC_Reset();
 
     /* Set Virtual_Com_Port DEVICE as not configured */
     pInformation->CurrentConfiguration = 0;
 
     /* Current Feature initialization */
-    pInformation->CurrentFeature = Virtual_Com_Port_ConfigDescriptor[7];
+     pInformation->CurrentFeature = Virtual_Com_Port_ConfigDescriptor[7];
+
+    // USB复位后默认禁止远程唤醒，等待主机授权
+    // pInformation->CurrentFeature = Virtual_Com_Port_ConfigDescriptor[7] & ((uint8_t)~0x20);
 
     /* Set Virtual_Com_Port DEVICE with the default Interface*/
     pInformation->CurrentInterface = 0;

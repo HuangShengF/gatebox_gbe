@@ -36,7 +36,8 @@
 #include "usb_conf.h"
 #include "usb_pwr.h"
 #include "hw_config.h"
-
+#include "gb_protocol.h"
+#include "n32l40x.h"
 typedef enum
 {
     SYSCLK_PLLSRC_HSI,
@@ -353,6 +354,40 @@ void SetSysClockToPLL(uint32_t freq, SYSCLK_PLL_TYPE src)
     }
 }
 
+uint16_t now_time = 0;
+static uint16_t last_time = 0;
+
+uint32_t get_usb_state(void)
+{
+    return bDeviceState;
+}
+
+// 外部中断调用
+void USB_WakeupRequestFromISR(void)
+{
+    // if(bDeviceState != SUSPENDED)
+    // {
+    //     return;
+    // }
+    // if(TIM_GetCnt(TIM3) < 5)
+    // {
+    //     // 时间未到，就算有人也不唤醒
+    //     return;
+    // }
+    // TIM_Enable(TIM3, DISABLE);
+    // TIM_SetCnt(TIM3, 0);
+
+    if((pInformation->CurrentFeature & 0x20U) != 0U)
+    {
+        Resume(RESUME_INTERNAL);
+    }
+    
+    // if ((bDeviceState == SUSPENDED) &&
+    //     ((pInformation->CurrentFeature & 0x20U) != 0U))
+    // {
+    //     Resume(RESUME_INTERNAL);
+    // }
+}
 
 /**
  * @brief   Sets suspend mode operating conditions
@@ -361,7 +396,7 @@ void Suspend(void)
 {
     uint32_t i = 0;
     uint16_t wCNTR;
-        
+
     /* suspend preparation */
     /* ... */
 
@@ -409,6 +444,9 @@ void Suspend(void)
     wCNTR = _GetCNTR();
     wCNTR |= CTRL_LP_MODE;
     _SetCNTR(wCNTR);
+
+    /* 保存USB已挂起的状态 */
+    // bDeviceState = SUSPENDED;
 
 #ifdef USB_LOW_PWR_MGMT_SUPPORT
 	/* Before entering LP RUN mode, you must make sure that the system clock is less

@@ -50,29 +50,6 @@ __IO uint32_t TimingDelay = 0;
 uint32_t system_clock = 0;
 
 void Delay(__IO uint32_t nCount);
-void Protocol_CrcTest(void)
-{
-    static const uint8_t test_data_1[] =
-        {
-            0x31, 0x32, 0x33, 0x34, 0x35,
-            0x36, 0x37, 0x38, 0x39};
-
-    static const uint8_t test_data_2[] =
-        {
-            0xA5, 0xB3,
-            0x01, 0x00,
-            0x01, 0x00,
-            0x00, 0x00};
-
-    uint16_t crc_1;
-    uint16_t crc_2;
-
-    crc_1 = gb_protocol_crc16(test_data_1, sizeof(test_data_1));
-    crc_2 = gb_protocol_crc16(test_data_2, sizeof(test_data_2));
-
-    printf("CRC test 1 = %04X\r\n", (unsigned int)crc_1);
-    printf("CRC test 2 = %04X\r\n", (unsigned int)crc_2);
-}
 static void Clock_Print(void)
 {
     RCC_ClocksType clocks;
@@ -166,12 +143,42 @@ void AEHA_switch(uint8_t cnt)
     }
 }
 
+void TIM3_Configuration(void)
+{
+    TIM_TimeBaseInitType TIM_TimeBaseStructure;
+    NVIC_InitType NVIC_InitStructure;
+    RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_TIM3, ENABLE);
+    /* Time base configuration */
+    TIM_InitTimBaseStruct(&TIM_TimeBaseStructure);
+    TIM_TimeBaseStructure.Period = 1000 - 1;
+    TIM_TimeBaseStructure.Prescaler = 24000 - 1;
+    TIM_TimeBaseStructure.ClkDiv = 0;
+    TIM_TimeBaseStructure.CntMode = TIM_CNT_MODE_UP;
+
+    TIM_InitTimeBase(TIM3, &TIM_TimeBaseStructure);
+    TIM_SetCnt(TIM3, 0U);
+
+    /* 每秒更新一次，进入USB挂起时再启动 */
+    TIM_Enable(TIM3, DISABLE);
+    TIM_ClrIntPendingBit(TIM3, TIM_INT_UPDATE);
+    TIM_ConfigInt(TIM3, TIM_INT_UPDATE, ENABLE);
+
+    /* 与USB使用相同的优先级分组，TIM3优先级低于USB */
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
+    NVIC_InitStructure.NVIC_IRQChannel = TIM3_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_ClearPendingIRQ(TIM3_IRQn);
+    NVIC_Init(&NVIC_InitStructure);
+}
 int main(void)
 {
     uint8_t cdc_rx_data[64];
     uint16_t cdc_rx_length;
     uint16_t i;
     system_clock = SYSCLK_VALUE_48MHz;
+    TIM3_Configuration(); /* USB中断可能访问TIM3，必须先初始化 */
 
    if (USB_Config(system_clock) == SUCCESS)
    {
@@ -238,7 +245,7 @@ int main(void)
         //     printf("error: %d\n", ret);
         // }
         
-        //gbe_protocol_poll();
+        gbe_protocol_poll();
         IR_Poll();
         // switch(cnt)
         // {

@@ -37,6 +37,7 @@
 #include "main.h"
 #include "usb_istr.h"
 #include "bsp_pir.h"
+#include "usb_pwr.h"
 /** @addtogroup N32L40X_StdPeriph_Template
  * @{
  */
@@ -141,6 +142,29 @@ void USBWakeUp_IRQHandler(void)
     EXTI_ClrITPendBit(EXTI_LINE17);
 }
 
+// void TIM3_IRQHandler(void)
+// {
+//     uint32_t primask = __get_PRIMASK();
+
+//     /* 避免USB恢复/复位在秒数更新中途清零计时状态 */
+//     __disable_irq();
+//     if (TIM_GetIntStatus(TIM3, TIM_INT_UPDATE) != RESET)
+//     {
+//         TIM_ClrIntPendingBit(TIM3, TIM_INT_UPDATE);
+//         if ((bDeviceState == SUSPENDED) && (delay_s < USB_WAKEUP_DELAY_S))
+//         {
+//             delay_s++;
+//         }
+
+//         /* 满5秒只停表，等待后续运动事件，不在这里唤醒 */
+//         if ((delay_s >= USB_WAKEUP_DELAY_S) || (bDeviceState != SUSPENDED))
+//         {
+//             TIM_Enable(TIM3, DISABLE);
+//         }
+//     }
+//     __set_PRIMASK(primask);
+// }
+
 void EXTI3_IRQHandler(void)
 {
     if (EXTI_GetITStatus(EXTI_LINE3) != RESET)
@@ -149,6 +173,12 @@ void EXTI3_IRQHandler(void)
         /* Clear the EXTI line 3 pending bit */
         EXTI_ClrITPendBit(EXTI_LINE3);
         PIR_RecordChangeFromISR(PIR_CHANGED_LEFT);
+
+        // 无运动的时候运动传感器是低电平，有人运动的时候是高电平
+        if (GPIO_ReadInputDataBit(GPIOA, GPIO_PIN_3) != RESET)
+        {
+            USB_WakeupRequestFromISR();
+        }
     }
 }
 
@@ -160,6 +190,10 @@ void EXTI9_5_IRQHandler(void)
         /* Clear the EXTI line 7 pending bit */
         EXTI_ClrITPendBit(EXTI_LINE7);
         PIR_RecordChangeFromISR(PIR_CHANGED_RIGHT);
+        if (GPIO_ReadInputDataBit(GPIOA, GPIO_PIN_7) != RESET)
+        {
+            USB_WakeupRequestFromISR();
+        }
     }
 }
 

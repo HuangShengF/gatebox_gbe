@@ -80,6 +80,7 @@ void EP3_OUT_Callback(void)
  */
 void SOF_Callback(void)
 {
+    // USB_WakeupOnSof();
     if(bDeviceState == CONFIGURED)
     {
         USB_CDC_TxProcess();
