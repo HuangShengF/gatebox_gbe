@@ -12,8 +12,8 @@
 typedef enum
 {
     PIR_WAKEUP_DISABLED = 0,
-    PIR_WAKEUP_GUARD,
     PIR_WAKEUP_WAIT_LOW,
+    PIR_WAKEUP_QUIET,
     PIR_WAKEUP_ARMED
 } PIR_WakeupState;
 
@@ -22,6 +22,7 @@ static volatile uint8_t g_pir_changed_flags = 0U;
 static volatile uint8_t g_pir_left_snapshot = 0U;
 static volatile uint8_t g_pir_right_snapshot = 0U;
 static volatile PIR_WakeupState g_pir_wakeup_state = PIR_WAKEUP_DISABLED;
+static volatile uint32_t g_pir_quiet_seconds = 0U;
 static uint8_t g_pir_wakeup_initialized = 0U;
 
 static void PIR_WakeupTimerInit(void)
@@ -47,11 +48,12 @@ static void PIR_WakeupTimerInit(void)
 
     TIM_InitTimBaseStruct(&TIM_TimeBaseStructure);
     TIM_TimeBaseStructure.Prescaler = (uint16_t)(prescaler_div - 1U);
-    TIM_TimeBaseStructure.Period = (uint16_t)(PIR_WAKEUP_GUARD_TIME_MS - 1U);
+    /* Generate one update interrupt per second. */
+    TIM_TimeBaseStructure.Period = (uint16_t)(PIR_WAKEUP_TIMER_HZ - 1U);
     TIM_TimeBaseStructure.ClkDiv = 0;
     TIM_TimeBaseStructure.CntMode = TIM_CNT_MODE_UP;
     TIM_InitTimeBase(TIM4, &TIM_TimeBaseStructure);
-    TIM_SelectOnePulseMode(TIM4, TIM_OPMODE_SINGLE);
+    TIM_SelectOnePulseMode(TIM4, TIM_OPMODE_REPET);
     TIM_SetCnt(TIM4, 0U);
     TIM_ClrIntPendingBit(TIM4, TIM_INT_UPDATE);
     TIM_ConfigInt(TIM4, TIM_INT_UPDATE, ENABLE);
@@ -91,8 +93,8 @@ void PIR_ExtiInit(void)
     EXTI_InitPeripheral(&EXTI_InitStructure);
 
     NVIC_InitStructure.NVIC_IRQChannel                   = EXTI3_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x05;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0x0F;
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0;
     NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
     NVIC_Init(&NVIC_InitStructure);
 
@@ -137,7 +139,24 @@ void PIR_RecordChangeFromISR(uint8_t flags)
     {
         if ((g_pir_left_snapshot == 0U) && (g_pir_right_snapshot == 0U))
         {
-            g_pir_wakeup_state = PIR_WAKEUP_ARMED;
+            g_pir_quiet_seconds = 0U;
+            g_pir_wakeup_state = PIR_WAKEUP_QUIET;
+            TIM_SetCnt(TIM4, 0U);
+            TIM_ClrIntPendingBit(TIM4, TIM_INT_UPDATE);
+            TIM_Enable(TIM4, ENABLE);
+        }
+        return;
+    }
+
+    if (g_pir_wakeup_state == PIR_WAKEUP_QUIET)
+    {
+        if ((g_pir_left_snapshot != 0U) || (g_pir_right_snapshot != 0U))
+        {
+            TIM_Enable(TIM4, DISABLE);
+            TIM_SetCnt(TIM4, 0U);
+            TIM_ClrIntPendingBit(TIM4, TIM_INT_UPDATE);
+            g_pir_quiet_seconds = 0U;
+            g_pir_wakeup_state = PIR_WAKEUP_WAIT_LOW;
         }
         return;
     }
@@ -155,21 +174,37 @@ void PIR_RecordChangeFromISR(uint8_t flags)
 
 void PIR_WakeupSuspend(void)
 {
+    uint8_t left_state;
+    uint8_t right_state;
+
     if (g_pir_wakeup_initialized == 0U)
     {
         return;
     }
 
-    g_pir_wakeup_state = PIR_WAKEUP_GUARD;
     TIM_Enable(TIM4, DISABLE);
     TIM_SetCnt(TIM4, 0U);
     TIM_ClrIntPendingBit(TIM4, TIM_INT_UPDATE);
-    TIM_Enable(TIM4, ENABLE);
+    g_pir_quiet_seconds = 0U;
+
+    left_state = (uint8_t)GPIO_ReadInputDataBit(PIR_PORT, PIR_LEFT_PIN);
+    right_state = (uint8_t)GPIO_ReadInputDataBit(PIR_PORT, PIR_RIGHT_PIN);
+
+    if ((left_state == 0U) && (right_state == 0U))
+    {
+        g_pir_wakeup_state = PIR_WAKEUP_QUIET;
+        TIM_Enable(TIM4, ENABLE);
+    }
+    else
+    {
+        g_pir_wakeup_state = PIR_WAKEUP_WAIT_LOW;
+    }
 }
 
 void PIR_WakeupResume(void)
 {
     g_pir_wakeup_state = PIR_WAKEUP_DISABLED;
+    g_pir_quiet_seconds = 0U;
 
     if (g_pir_wakeup_initialized != 0U)
     {
@@ -181,31 +216,41 @@ void PIR_WakeupResume(void)
 
 void PIR_WakeupTimerFromISR(void)
 {
+    uint8_t left_state;
+    uint8_t right_state;
+
     if (TIM_GetIntStatus(TIM4, TIM_INT_UPDATE) == RESET)
     {
         return;
     }
 
     TIM_ClrIntPendingBit(TIM4, TIM_INT_UPDATE);
-    TIM_Enable(TIM4, DISABLE);
-
     if ((bDeviceState != SUSPENDED)
-        || (g_pir_wakeup_state != PIR_WAKEUP_GUARD))
+        || (g_pir_wakeup_state != PIR_WAKEUP_QUIET))
     {
+        TIM_Enable(TIM4, DISABLE);
+        g_pir_quiet_seconds = 0U;
         g_pir_wakeup_state = PIR_WAKEUP_DISABLED;
         return;
     }
 
-    g_pir_left_snapshot = (uint8_t)GPIO_ReadInputDataBit(PIR_PORT, PIR_LEFT_PIN);
-    g_pir_right_snapshot = (uint8_t)GPIO_ReadInputDataBit(PIR_PORT, PIR_RIGHT_PIN);
+    left_state = (uint8_t)GPIO_ReadInputDataBit(PIR_PORT, PIR_LEFT_PIN);
+    right_state = (uint8_t)GPIO_ReadInputDataBit(PIR_PORT, PIR_RIGHT_PIN);
 
-    if ((g_pir_left_snapshot == 0U) && (g_pir_right_snapshot == 0U))
+    if ((left_state != 0U) || (right_state != 0U))
     {
-        g_pir_wakeup_state = PIR_WAKEUP_ARMED;
+        TIM_Enable(TIM4, DISABLE);
+        g_pir_quiet_seconds = 0U;
+        g_pir_wakeup_state = PIR_WAKEUP_WAIT_LOW;
     }
     else
     {
-        g_pir_wakeup_state = PIR_WAKEUP_WAIT_LOW;
+        g_pir_quiet_seconds++;
+        if (g_pir_quiet_seconds >= PIR_WAKEUP_QUIET_TIME_SEC)
+        {
+            TIM_Enable(TIM4, DISABLE);
+            g_pir_wakeup_state = PIR_WAKEUP_ARMED;
+        }
     }
 }
 

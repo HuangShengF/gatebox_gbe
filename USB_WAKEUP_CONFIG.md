@@ -9,7 +9,7 @@
 - 接口0/1: CDC ACM虚拟串口
 - 接口2: HID Boot Keyboard，仅用于取得Windows唤醒能力，不发送按键
 - 唤醒源: PA3或PA7的PIR低到高边沿
-- 唤醒保护: USB进入Suspend后的前30秒禁止PIR唤醒；保护结束后必须先确认两路PIR均为低电平，下一次低到高才允许唤醒
+- 唤醒保护: USB进入Suspend后，必须确认两路PIR连续保持低电平60秒才布防；期间任一路变高都会清零并重新计时，布防后下一次低到高才允许唤醒
 
 烧录前先在设备管理器中卸载原来的`VID_19F5&PID_5740`设备，烧录后重新插拔USB，避免Windows继续使用原纯CDC设备的驱动绑定缓存。正式产品应使用已分配的VID/PID。
 
@@ -29,7 +29,7 @@ powercfg /devicequery wake_armed
 
 1. `Standard_SetDeviceFeature()`：确认Windows已授权Remote Wakeup。
 2. `Suspend()`：确认PC睡眠后USB总线进入Suspend。
-3. `PIR_WakeupTimerFromISR()`：确认30秒保护结束后进入等待低电平或已布防状态。
+3. `PIR_WakeupTimerFromISR()`：确认两路PIR连续低电平60秒后才进入已布防状态。
 4. `USB_Remote_Wakeup()`：确认PIR低到高触发时设备处于`SUSPENDED`且授权位为1。
 5. `Resume()`的`RESUME_START`分支：确认设置`CTRL_RESUM`。
 

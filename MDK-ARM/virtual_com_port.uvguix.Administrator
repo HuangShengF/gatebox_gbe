@@ -3732,9 +3732,9 @@
       </Doc>
       <Doc>
         <Name>..\src\usb_prop.c</Name>
-        <ColumnNumber>5</ColumnNumber>
+        <ColumnNumber>38</ColumnNumber>
         <TopLine>342</TopLine>
-        <CurrentLine>367</CurrentLine>
+        <CurrentLine>373</CurrentLine>
         <Folding>1</Folding>
         <ContractedFolders></ContractedFolders>
         <PaneID>0</PaneID>

@@ -7,7 +7,11 @@
 
 #define PIR_CHANGED_LEFT     0x01U
 #define PIR_CHANGED_RIGHT    0x02U
-#define PIR_WAKEUP_GUARD_TIME_MS  30000U
+#define PIR_WAKEUP_QUIET_TIME_SEC  60U
+
+#if (PIR_WAKEUP_QUIET_TIME_SEC == 0U)
+#error "PIR_WAKEUP_QUIET_TIME_SEC must be greater than zero"
+#endif
 
 
 
