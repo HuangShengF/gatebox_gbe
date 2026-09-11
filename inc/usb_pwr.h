@@ -59,11 +59,14 @@ typedef enum _DEVICE_STATE
     CONFIGURED
 } DEVICE_STATE;
 
+#define USB_REMOTE_WAKEUP_FEATURE_MASK  (0x20U)
+
 void Suspend(void);
 void Resume_Init(void);
 void Resume(RESUME_STATE eResumeSetVal);
 USB_Result PowerOn(void);
 USB_Result PowerOff(void);
+void USB_Remote_Wakeup(void);
 
 extern __IO uint32_t bDeviceState; /* USB device status */
 extern __IO bool fSuspendEnabled;  /* true when suspend is possible */

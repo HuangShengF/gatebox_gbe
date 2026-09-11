@@ -43,7 +43,7 @@
 /* defines how many endpoints are used by the device */
 /*-------------------------------------------------------------*/
 
-#define EP_NUM                          (4)
+#define EP_NUM                          (5)
 
 /*-------------------------------------------------------------*/
 /* --------------   Buffer Description Table  -----------------*/
@@ -62,6 +62,7 @@
 #define ENDP1_TXADDR        (0xC0)
 #define ENDP2_TXADDR        (0x100)
 #define ENDP3_RXADDR        (0x110)
+#define ENDP4_TXADDR        (0x150)
 
 
 /*-------------------------------------------------------------*/

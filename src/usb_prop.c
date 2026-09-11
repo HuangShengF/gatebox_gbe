@@ -48,6 +48,11 @@
 /* Private variables ---------------------------------------------------------*/
 uint8_t Request = 0;
 
+static uint8_t hid_idle_rate = 0;
+static uint8_t hid_protocol = 1;
+static uint8_t hid_input_report[HID_IN_PACKET_SIZE] = {0};
+static uint8_t hid_output_report = 0;
+
 LINE_CODING linecoding =
 {
     115200, /* baud rate*/
@@ -107,6 +112,18 @@ USB_OneDescriptor Config_Descriptor =
     VIRTUAL_COM_PORT_SIZ_CONFIG_DESC
 };
 
+USB_OneDescriptor HID_Descriptor_Info =
+{
+    (uint8_t*)HID_Descriptor,
+    HID_SIZ_DESC
+};
+
+USB_OneDescriptor HID_ReportDescriptor_Info =
+{
+    (uint8_t*)HID_ReportDescriptor,
+    HID_SIZ_REPORT_DESC
+};
+
 USB_OneDescriptor String_Descriptor[4] =
 {
     {(uint8_t*)Virtual_Com_Port_StringLangID, VIRTUAL_COM_PORT_SIZ_STRING_LANGID},
@@ -144,12 +161,16 @@ void Virtual_Com_Port_init(void)
 void Virtual_Com_Port_Reset(void)
 {
     USB_CDC_Reset();
+    hid_idle_rate = 0;
+    hid_protocol = 1;
+    hid_output_report = 0;
 
     /* Set Virtual_Com_Port DEVICE as not configured */
     pInformation->CurrentConfiguration = 0;
 
-    /* Current Feature initialization */
-    pInformation->CurrentFeature = Virtual_Com_Port_ConfigDescriptor[7];
+    /* Remote wakeup must remain disabled until enabled by the host. */
+    pInformation->CurrentFeature = Virtual_Com_Port_ConfigDescriptor[7]
+                                   & (uint8_t)(~USB_REMOTE_WAKEUP_FEATURE_MASK);
 
     /* Set Virtual_Com_Port DEVICE with the default Interface*/
     pInformation->CurrentInterface = 0;
@@ -183,6 +204,13 @@ void Virtual_Com_Port_Reset(void)
     USB_SetEpRxCnt(ENDP3, VIRTUAL_COM_PORT_DATA_SIZE);
     SetEPRxStatus(ENDP3, EP_RX_VALID);
     SetEPTxStatus(ENDP3, EP_TX_DIS);
+
+    /* Initialize Endpoint 4 */
+    USB_SetEpType(ENDP4, EP_INTERRUPT);
+    USB_SetEpTxAddr(ENDP4, ENDP4_TXADDR);
+    USB_SetEpTxCnt(ENDP4, 0);
+    SetEPTxStatus(ENDP4, EP_TX_NAK);
+    SetEPRxStatus(ENDP4, EP_RX_DIS);
 
     /* Set this device to response on default address */
     USB_SetDeviceAddress(0);
@@ -241,20 +269,55 @@ USB_Result Virtual_Com_Port_Data_Setup(uint8_t RequestNo)
 
     CopyRoutine = NULL;
 
-    if (RequestNo == GET_LINE_CODING)
+    if ((RequestNo == GET_DESCRIPTOR)
+        && (Type_Recipient == (STANDARD_REQUEST | INTERFACE_RECIPIENT))
+        && (pInformation->USBwIndex0 == HID_INTERFACE_NUMBER))
     {
-        if (Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
+        if (pInformation->USBwValue1 == HID_DESCRIPTOR_TYPE)
+        {
+            CopyRoutine = HID_GetDescriptor;
+        }
+        else if (pInformation->USBwValue1 == HID_REPORT_DESCRIPTOR_TYPE)
+        {
+            CopyRoutine = HID_GetReportDescriptor;
+        }
+    }
+    else if ((Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
+             && (pInformation->USBwIndex0 == HID_INTERFACE_NUMBER))
+    {
+        if (RequestNo == HID_GET_REPORT)
+        {
+            CopyRoutine = HID_GetReport;
+        }
+        else if (RequestNo == HID_SET_REPORT)
+        {
+            CopyRoutine = HID_SetReport;
+        }
+        else if (RequestNo == HID_GET_IDLE)
+        {
+            CopyRoutine = HID_GetIdle;
+        }
+        else if (RequestNo == HID_GET_PROTOCOL)
+        {
+            CopyRoutine = HID_GetProtocol;
+        }
+    }
+    else if (RequestNo == GET_LINE_CODING)
+    {
+        if ((Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
+            && (pInformation->USBwIndex0 == 0U))
         {
             CopyRoutine = Virtual_Com_Port_GetLineCoding;
         }
     }
     else if (RequestNo == SET_LINE_CODING)
     {
-        if (Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
+        if ((Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
+            && (pInformation->USBwIndex0 == 0U))
         {
             CopyRoutine = Virtual_Com_Port_SetLineCoding;
+            Request = SET_LINE_CODING;
         }
-        Request = SET_LINE_CODING;
     }
 
     if (CopyRoutine == NULL)
@@ -275,7 +338,23 @@ USB_Result Virtual_Com_Port_Data_Setup(uint8_t RequestNo)
  */
 USB_Result Virtual_Com_Port_NoData_Setup(uint8_t RequestNo)
 {
-    if (Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
+    if ((Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
+        && (pInformation->USBwIndex0 == HID_INTERFACE_NUMBER))
+    {
+        if (RequestNo == HID_SET_IDLE)
+        {
+            hid_idle_rate = pInformation->USBwValue1;
+            return Success;
+        }
+        else if ((RequestNo == HID_SET_PROTOCOL)
+                 && (pInformation->USBwValue0 <= 1U))
+        {
+            hid_protocol = pInformation->USBwValue0;
+            return Success;
+        }
+    }
+    else if ((Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
+             && (pInformation->USBwIndex0 == 0U))
     {
         if (RequestNo == SET_COMM_FEATURE)
         {
@@ -340,7 +419,7 @@ USB_Result Virtual_Com_Port_Get_Interface_Setting(uint8_t Interface, uint8_t Alt
     {
         return UnSupport;
     }
-    else if (Interface > 1)
+    else if (Interface > HID_INTERFACE_NUMBER)
     {
         return UnSupport;
     }
@@ -375,4 +454,54 @@ uint8_t *Virtual_Com_Port_SetLineCoding(uint16_t Length)
         return NULL;
     }
     return(uint8_t *)&linecoding;
+}
+
+uint8_t *HID_GetDescriptor(uint16_t Length)
+{
+    return Standard_GetDescriptorData(Length, &HID_Descriptor_Info);
+}
+
+uint8_t *HID_GetReportDescriptor(uint16_t Length)
+{
+    return Standard_GetDescriptorData(Length, &HID_ReportDescriptor_Info);
+}
+
+uint8_t *HID_GetReport(uint16_t Length)
+{
+    if (Length == 0U)
+    {
+        pInformation->Ctrl_Info.Usb_wLength = sizeof(hid_input_report);
+        return NULL;
+    }
+    return hid_input_report;
+}
+
+uint8_t *HID_SetReport(uint16_t Length)
+{
+    if (Length == 0U)
+    {
+        pInformation->Ctrl_Info.Usb_wLength = sizeof(hid_output_report);
+        return NULL;
+    }
+    return &hid_output_report;
+}
+
+uint8_t *HID_GetIdle(uint16_t Length)
+{
+    if (Length == 0U)
+    {
+        pInformation->Ctrl_Info.Usb_wLength = sizeof(hid_idle_rate);
+        return NULL;
+    }
+    return &hid_idle_rate;
+}
+
+uint8_t *HID_GetProtocol(uint16_t Length)
+{
+    if (Length == 0U)
+    {
+        pInformation->Ctrl_Info.Usb_wLength = sizeof(hid_protocol);
+        return NULL;
+    }
+    return &hid_protocol;
 }

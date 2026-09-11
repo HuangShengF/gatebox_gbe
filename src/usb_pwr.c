@@ -49,6 +49,8 @@ typedef enum
     SYSCLK_PLLSRC_HSEDIV2_PLLDIV2,
 }SYSCLK_PLL_TYPE;
 
+#define USB_SUSPEND_RESET_TIMEOUT  (0x10000U)
+
 __IO uint32_t bDeviceState = UNCONNECTED; /* USB device status */
 __IO bool fSuspendEnabled  = true;        /* true when suspend is possible */
 __IO uint32_t EP[8];
@@ -391,8 +393,12 @@ void Suspend(void)
     wCNTR &= ~CTRL_FRST;
     _SetCNTR(wCNTR);
 
-    /* poll for RESET flag in STS, this bit will be set by hardware, if this flag is always not set, it means maybe USB module failure */
-    while ((_GetISTR() & STS_RST) == 0);
+    /* Poll for RESET without allowing a USB interrupt to block permanently. */
+    i = USB_SUSPEND_RESET_TIMEOUT;
+    while (((_GetISTR() & STS_RST) == 0U) && (i > 0U))
+    {
+        i--;
+    }
 
     /* clear RESET flag in STS */
     _SetISTR((uint16_t)CLR_RST);
@@ -409,6 +415,8 @@ void Suspend(void)
     wCNTR = _GetCNTR();
     wCNTR |= CTRL_LP_MODE;
     _SetCNTR(wCNTR);
+
+    Enter_LowPowerMode();
 
 #ifdef USB_LOW_PWR_MGMT_SUPPORT
 	/* Before entering LP RUN mode, you must make sure that the system clock is less
@@ -442,11 +450,7 @@ void Resume_Init(void)
     wCNTR &= (~CTRL_LP_MODE);
     _SetCNTR(wCNTR);
 
-#ifdef USB_LOW_PWR_MGMT_SUPPORT      
-    /* restore full power */
-    /* ... on connected devices */
     Leave_LowPowerMode();
-#endif /* USB_LOW_PWR_MGMT_SUPPORT */
 
     /* reset FSUSP bit */
     _SetCNTR(IMR_MSK);
@@ -485,7 +489,9 @@ void Resume(RESUME_STATE eResumeSetVal)
         break;
     case RESUME_INTERNAL:
         Resume_Init();
-        ResumeS.eState = RESUME_START;
+        /* Wait long enough to satisfy the 5 ms suspend-to-resume interval. */
+        ResumeS.bESOFcnt = 2;
+        ResumeS.eState = RESUME_WAIT;
         remotewakeupon = 1;
         break;
     case RESUME_LATER:
@@ -520,6 +526,21 @@ void Resume(RESUME_STATE eResumeSetVal)
     default:
         ResumeS.eState = RESUME_OFF;
         break;
+    }
+}
+
+/**
+ * @brief   Trigger USB Remote Wakeup
+ *          Call this function when motion sensor detects movement
+ */
+void USB_Remote_Wakeup(void)
+{
+    /* The host must explicitly enable DEVICE_REMOTE_WAKEUP before suspend. */
+    if ((bDeviceState == SUSPENDED)
+        && ((Device_Info.CurrentFeature & USB_REMOTE_WAKEUP_FEATURE_MASK) != 0U))
+    {
+        /* Trigger remote wakeup */
+        Resume(RESUME_INTERNAL);
     }
 }
 

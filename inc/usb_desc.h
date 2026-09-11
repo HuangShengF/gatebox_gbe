@@ -49,22 +49,31 @@
 #define USB_STRING_DESCRIPTOR_TYPE              0x03
 #define USB_INTERFACE_DESCRIPTOR_TYPE           0x04
 #define USB_ENDPOINT_DESCRIPTOR_TYPE            0x05
+#define USB_INTERFACE_ASSOCIATION_DESCRIPTOR_TYPE 0x0B
+#define HID_DESCRIPTOR_TYPE                     0x21
+#define HID_REPORT_DESCRIPTOR_TYPE              0x22
 
 #define VIRTUAL_COM_PORT_DATA_SIZE              64
 #define VIRTUAL_COM_PORT_INT_SIZE               8
+#define HID_IN_PACKET_SIZE                      8
+#define HID_INTERFACE_NUMBER                    2
 
 #define VIRTUAL_COM_PORT_SIZ_DEVICE_DESC        18
-#define VIRTUAL_COM_PORT_SIZ_CONFIG_DESC        67
+#define VIRTUAL_COM_PORT_SIZ_CONFIG_DESC        100
 #define VIRTUAL_COM_PORT_SIZ_STRING_LANGID      4
 #define VIRTUAL_COM_PORT_SIZ_STRING_VENDOR      16
 #define VIRTUAL_COM_PORT_SIZ_STRING_PRODUCT     30
 #define VIRTUAL_COM_PORT_SIZ_STRING_SERIAL      16
+#define HID_SIZ_DESC                            9
+#define HID_SIZ_REPORT_DESC                     63
 
 #define STANDARD_ENDPOINT_DESC_SIZE             0x09
 
 /* Exported functions ------------------------------------------------------- */
 extern const uint8_t Virtual_Com_Port_DeviceDescriptor[VIRTUAL_COM_PORT_SIZ_DEVICE_DESC];
 extern const uint8_t Virtual_Com_Port_ConfigDescriptor[VIRTUAL_COM_PORT_SIZ_CONFIG_DESC];
+extern const uint8_t HID_Descriptor[HID_SIZ_DESC];
+extern const uint8_t HID_ReportDescriptor[HID_SIZ_REPORT_DESC];
 
 extern const uint8_t Virtual_Com_Port_StringLangID[VIRTUAL_COM_PORT_SIZ_STRING_LANGID];
 extern const uint8_t Virtual_Com_Port_StringVendor[VIRTUAL_COM_PORT_SIZ_STRING_VENDOR];

@@ -1,5 +1,5 @@
 1、功能说明
-    USB模拟串口
+    USB CDC模拟串口 + HID远程唤醒
 
 2、使用环境
     硬件环境：工程对应的开发硬件平台 
@@ -19,7 +19,7 @@
     MCU_TX 和 MCU_RX 的跳线帽需取下
 
 1. Function description
-    USB virtual serial port
+    USB CDC virtual serial port + HID remote wakeup
 
 2. Use environment
     Hardware environment: development hardware platform corresponding to the project 

@@ -37,6 +37,7 @@
 #include "main.h"
 #include "usb_istr.h"
 #include "bsp_pir.h"
+#include "usb_pwr.h"
 /** @addtogroup N32L40X_StdPeriph_Template
  * @{
  */
@@ -149,6 +150,9 @@ void EXTI3_IRQHandler(void)
         /* Clear the EXTI line 3 pending bit */
         EXTI_ClrITPendBit(EXTI_LINE3);
         PIR_RecordChangeFromISR(PIR_CHANGED_LEFT);
+
+        /* Trigger USB remote wakeup */
+        USB_Remote_Wakeup();
     }
 }
 
@@ -160,6 +164,9 @@ void EXTI9_5_IRQHandler(void)
         /* Clear the EXTI line 7 pending bit */
         EXTI_ClrITPendBit(EXTI_LINE7);
         PIR_RecordChangeFromISR(PIR_CHANGED_RIGHT);
+
+        /* Trigger USB remote wakeup */
+        USB_Remote_Wakeup();
     }
 }
 
