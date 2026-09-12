@@ -178,6 +178,7 @@ int main(void)
     uint16_t cdc_rx_length;
     uint16_t i;
     system_clock = SYSCLK_VALUE_48MHz;
+    IR_TxPinIdleInit(); /* 未发射时，尽早将PA2固定为低电平 */
     TIM3_Configuration(); /* USB中断可能访问TIM3，必须先初始化 */
 
    if (USB_Config(system_clock) == SUCCESS)
@@ -243,6 +244,9 @@ int main(void)
         
         gbe_protocol_poll();
         IR_Poll();
+
+        // uint8_t state =  GPIO_ReadInputDataBit(GPIOA , GPIO_PIN_2);
+        // printf("state: %d\n", state);
         // switch(cnt)
         // {
 

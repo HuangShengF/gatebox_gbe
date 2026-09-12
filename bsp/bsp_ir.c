@@ -106,6 +106,25 @@ static IR_RxFrame_t * volatile ir_cap_read = &ir_cap_B;
 /* 微秒转定时器计数值 (TIM6: 24MHz / 24 = 1MHz, 1us per tick) */
 #define US_TO_TICKS(us) (us)
 
+/* 在其他模块初始化前，尽早将红外发射脚固定为低电平。 */
+void IR_TxPinIdleInit(void)
+{
+    GPIO_InitType GPIO_InitStructure;
+
+    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA, ENABLE);
+    
+
+    GPIO_InitStruct(&GPIO_InitStructure);
+    GPIO_InitStructure.Pin = GPIO_PIN_2;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_InitStructure.GPIO_Pull = GPIO_Pull_Up;
+    GPIO_InitStructure.GPIO_Current = GPIO_DC_12mA;
+    GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
+    GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
+    // GPIO_ResetBits(GPIOA, GPIO_PIN_2);
+    GPIO_WriteBit(GPIOA, GPIO_PIN_2, Bit_SET);
+}
+
 void IR_PWM_Init(void)
 {
     GPIO_InitType GPIO_InitStructure;
@@ -116,13 +135,7 @@ void IR_PWM_Init(void)
 
     RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_TIM2, ENABLE);
 
-    GPIO_InitStruct(&GPIO_InitStructure);
-    GPIO_InitStructure.Pin = GPIO_PIN_2;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_InitStructure.GPIO_Current = GPIO_DC_12mA;
-    GPIO_InitStructure.GPIO_Alternate = GPIO_AF2_TIM2;
-    GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
-    GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
+    IR_TxPinIdleInit();
 
     /*
      * TIM2_CLK = 24MHz
@@ -138,13 +151,23 @@ void IR_PWM_Init(void)
     TIM_InitOcStruct(&TIM_OCInitStructure);
     TIM_OCInitStructure.OcMode = TIM_OCMODE_PWM1;
     TIM_OCInitStructure.OutputState = TIM_OUTPUT_STATE_DISABLE;
-    TIM_OCInitStructure.Pulse = (631 * 1) / 3;
+    TIM_OCInitStructure.Pulse = 0;
     TIM_OCInitStructure.OcPolarity = TIM_OC_POLARITY_HIGH;
     TIM_InitOc3(TIM2, &TIM_OCInitStructure);
 
     TIM_ConfigOc3Preload(TIM2, TIM_OC_PRE_LOAD_ENABLE);
     TIM_ConfigArPreload(TIM2, ENABLE);
     TIM_EnableCapCmpCh(TIM2, TIM_CH_3, TIM_CAP_CMP_DISABLE);
+
+    /* TIM2输出已经处于安全状态，再将PA2切换到TIM2_CH3。 */
+    GPIO_InitStruct(&GPIO_InitStructure);
+    GPIO_InitStructure.Pin = GPIO_PIN_2;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_InitStructure.GPIO_Pull = GPIO_Pull_Down;
+    GPIO_InitStructure.GPIO_Current = GPIO_DC_12mA;
+    GPIO_InitStructure.GPIO_Alternate = GPIO_AF2_TIM2;
+    GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
+    GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
 
     /* 计数器运行，但CH3输出暂时关闭 */
     TIM_Enable(TIM2, ENABLE);

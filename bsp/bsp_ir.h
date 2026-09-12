@@ -69,6 +69,7 @@ typedef void (*IR_ReceiveCallback_t)(const IR_ReceiveEvent_t *event);
 void IR_RegisterReceiveCallback(IR_ReceiveCallback_t callback);
 
 
+void IR_TxPinIdleInit(void);
 void IR_Init(void);
 void IR_Start(void);
 void IR_Stop(void);
