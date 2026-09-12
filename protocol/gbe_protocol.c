@@ -382,6 +382,8 @@ void gbe_protocol_upload_ambient_light(void)
     static uint16_t last_time = 0;
     static uint16_t last_reinit_time = 0;
     static uint8_t i2c_error_count = 0;
+    static uint8_t no_new_data_count = 0;
+    static uint8_t need_reinit = 0;
     float lux = 0;
     uint8_t ret;
     int8_t reinit_ret;
@@ -398,27 +400,57 @@ void gbe_protocol_upload_ambient_light(void)
     ret = LTR329_CalculateLux(LTR329_GAIN_8X, LTR329_INT_100MS, 1.0, &lux);
     if (ret == LTR329_ERR_I2C)
     {
+        need_reinit = 1U;
+        no_new_data_count = 0U;
         if (i2c_error_count < 3U)
         {
             i2c_error_count++;
         }
-
-        /* 连续3次I2C错误后尝试恢复，限制重初始化频率，避免反复阻塞主循环。 */
-        if ((i2c_error_count >= 3U) &&
-            ((uint16_t)(current_time - last_reinit_time) >= 2000U))
+    }
+    else if (ret == LTR329_ERR_NO_NEW_DATA)
+    {
+        if (no_new_data_count < 3U)
         {
-            i2c_error_count = 0U;
-            last_reinit_time = current_time;
-            reinit_ret = LTR329_Init(LTR329_GAIN_8X,
-                                     LTR329_INT_100MS,
-                                     LTR329_RATE_200MS);
-            printf("LTR329 reinit: %d\r\n", reinit_ret);
+            no_new_data_count++;
         }
+
+        /* 覆盖未采样到I2C错误的快速掉电重插。 */
+        if (no_new_data_count >= 3U)
+        {
+            need_reinit = 1U;
+        }
+    }
+    else if (ret == LTR329_OK)
+    {
+        i2c_error_count = 0U;
+        no_new_data_count = 0U;
+        need_reinit = 0U;
     }
     else
     {
-        /* 能读到状态寄存器说明I2C已经恢复。 */
         i2c_error_count = 0U;
+        no_new_data_count = 0U;
+    }
+
+    /*
+     * 连续I2C错误时限频恢复；若总线重新应答但芯片仍在待机态，
+     * 不再把NO_NEW_DATA误判为已经恢复。
+     */
+    if ((need_reinit != 0U) &&
+        ((i2c_error_count >= 3U) || (ret != LTR329_ERR_I2C)) &&
+        ((uint16_t)(current_time - last_reinit_time) >= 2000U))
+    {
+        last_reinit_time = current_time;
+        reinit_ret = LTR329_Init(LTR329_GAIN_8X,
+                                 LTR329_INT_100MS,
+                                 LTR329_RATE_200MS);
+        printf("LTR329 reinit: %d\r\n", reinit_ret);
+        if (reinit_ret == LTR329_OK)
+        {
+            i2c_error_count = 0U;
+            no_new_data_count = 0U;
+            need_reinit = 0U;
+        }
     }
 
     if (ret == LTR329_ERR_NO_NEW_DATA)

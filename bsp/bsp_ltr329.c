@@ -42,6 +42,8 @@ static CommCtrl_t Comm_Flag = C_READY;
 
 static void CommTimeOut_CallBack(ErrCode_t errcode);
 static void LTR329_ConfigSclMode(GPIO_ModeType mode);
+static void LTR329_ConfigBusGpioMode(GPIO_ModeType mode);
+static void LTR329_RecoverI2cBus(void);
 static uint8_t LTR329_GetGainValue(uint8_t gain);
 static uint16_t LTR329_GetIntegrationTimeMs(uint8_t int_time);
 static uint16_t LTR329_GetMeasurementRateMs(uint8_t meas_rate);
@@ -812,13 +814,85 @@ static void CommTimeOut_CallBack(ErrCode_t errcode)
         I2C_GenerateStop(I2C1, ENABLE);
     }
 
-    I2C_ConfigAck(I2C1, ENABLE);
-    I2C_ConfigNackLocation(I2C1, I2C_NACK_POS_CURRENT);
+    I2C_ClrFlag(I2C1, I2C_FLAG_ACKFAIL |
+                      I2C_FLAG_BUSERR |
+                      I2C_FLAG_ARLOST);
+    LTR329_RecoverI2cBus();
     Comm_Flag = C_READY;
 
 #ifdef NON_REENTRANT
     Mutex_Flag = 0;
 #endif
+}
+
+static void LTR329_ConfigBusGpioMode(GPIO_ModeType mode)
+{
+    GPIO_InitType gpio;
+
+    GPIO_InitStruct(&gpio);
+    gpio.Pin = I2Cx_SCL_PIN | I2Cx_SDA_PIN;
+    gpio.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
+    gpio.GPIO_Mode = mode;
+    gpio.GPIO_Alternate = GPIO_AF1_I2C1;
+    gpio.GPIO_Pull = GPIO_Pull_Up;
+    GPIO_InitPeripheral(GPIOx, &gpio);
+}
+
+static void LTR329_RecoverI2cBus(void)
+{
+    uint8_t pulse;
+    uint16_t scl_timeout;
+
+    I2C_Enable(I2C1, DISABLE);
+
+    /* 先释放总线，避免切换为GPIO输出时产生低电平毛刺。 */
+    GPIO_SetBits(GPIOx, I2Cx_SCL_PIN | I2Cx_SDA_PIN);
+    LTR329_ConfigBusGpioMode(GPIO_Mode_Out_OD);
+    delay_us(5U);
+
+    /* SDA被从机拉低时，最多补9个SCL脉冲让从机退出未完成传输。 */
+    if (GPIO_ReadInputDataBit(GPIOx, I2Cx_SDA_PIN) == 0U)
+    {
+        for (pulse = 0U; pulse < 9U; pulse++)
+        {
+            GPIO_ResetBits(GPIOx, I2Cx_SCL_PIN);
+            delay_us(5U);
+            GPIO_SetBits(GPIOx, I2Cx_SCL_PIN);
+
+            scl_timeout = 100U;
+            while ((GPIO_ReadInputDataBit(GPIOx, I2Cx_SCL_PIN) == 0U) &&
+                   (scl_timeout > 0U))
+            {
+                scl_timeout--;
+                delay_us(1U);
+            }
+            delay_us(5U);
+
+            if (GPIO_ReadInputDataBit(GPIOx, I2Cx_SDA_PIN) != 0U)
+            {
+                break;
+            }
+        }
+    }
+
+    /* GPIO方式生成STOP：SDA低期间释放SCL，再释放SDA。 */
+    GPIO_ResetBits(GPIOx, I2Cx_SCL_PIN | I2Cx_SDA_PIN);
+    delay_us(5U);
+    GPIO_SetBits(GPIOx, I2Cx_SCL_PIN);
+
+    scl_timeout = 100U;
+    while ((GPIO_ReadInputDataBit(GPIOx, I2Cx_SCL_PIN) == 0U) &&
+           (scl_timeout > 0U))
+    {
+        scl_timeout--;
+        delay_us(1U);
+    }
+    delay_us(5U);
+    GPIO_SetBits(GPIOx, I2Cx_SDA_PIN);
+    delay_us(5U);
+
+    /* i2c_master_init()内部会复位I2C1并恢复PB6/PB7复用开漏配置。 */
+    (void)i2c_master_init();
 }
 
 static void LTR329_ConfigSclMode(GPIO_ModeType mode)
