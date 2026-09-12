@@ -12,8 +12,11 @@ extern "C" {
 #define USB_CDC_RX_BUFFER_SIZE 2048U
 #define USB_CDC_TX_BUFFER_SIZE 2048U
 
+typedef void (*USB_CDC_ResetCallback_t)(void);
+
 void USB_CDC_Init(void);
 void USB_CDC_Reset(void);
+void USB_CDC_RegisterResetCallback(USB_CDC_ResetCallback_t callback);
 
 uint16_t USB_CDC_GetRxCount(void);
 /* Returns the number of bytes copied from the receive ring. */

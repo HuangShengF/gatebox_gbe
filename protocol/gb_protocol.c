@@ -6,13 +6,14 @@ static gb_protocol_rx_t g_ctx;
 
 #define MOTION_CALLBACK_ID 0U
 #define IR_SEND_CALLBACK_ID 1U
-#define CALLBACK_COUNT 2U
+#define RESET_SESSION       2U
+#define CALLBACK_COUNT 3U
 static gb_request_callback_t gbe_callback[CALLBACK_COUNT] = {NULL};
 void TIM7_Configuration(void);
 
 void gb_protocol_register_callback(gb_request_callback_t *callback, uint8_t num)
 {
-    if ((num > 2) || (callback == NULL))
+    if ((num > CALLBACK_COUNT) || (callback == NULL))
     {
         printf("callback num or callback invalid/r/n");
         return;
@@ -53,6 +54,11 @@ uint16_t gb_protocol_crc16(const uint8_t *data, uint16_t len)
 void gb_protocol_init(void)
 {
     TIM7_Configuration();
+    gb_protocol_session_reset();
+}
+
+void gb_protocol_session_reset(void)
+{
     g_ctx.state = RX_STATE_IDLE;
     g_ctx.index = 0;
     g_ctx.rx_payload_size = 0;
@@ -64,10 +70,19 @@ void gb_protocol_init(void)
     g_ctx.last_frame_time = 0;
 }
 
+
+
 // ============ 发送帧 ============
 bool Protocol_SendFrame(uint16_t command, uint16_t sequence, const uint8_t *payload, uint16_t payload_len)
 {
-    uint8_t tx_buf[500] = {0};
+    uint8_t tx_buf[PROTOCOL_HEADER_SIZE + PROTOCOL_MAX_TX_PAYLOAD + 10U] = {0};
+
+    if ((payload_len > PROTOCOL_MAX_TX_PAYLOAD)
+        || ((payload_len != 0U) && (payload == NULL)))
+    {
+        return false;
+    }
+
     // 组帧
     // 构建帧头
     tx_buf[0] = PROTOCOL_MAGIC & 0xFF;
@@ -165,6 +180,10 @@ static void Handle_Handshake(const Frame_t *frame)
 
     // 已握手在次Handshake,建立新的会话
     g_ctx.session_state = SESSION_AWAITING_HANDSHAKE;
+    if (gbe_callback[RESET_SESSION] != NULL)
+    {
+        gbe_callback[RESET_SESSION](NULL);
+    }
 
     if (frame->payload_size != 8)
     {

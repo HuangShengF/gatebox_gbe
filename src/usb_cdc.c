@@ -32,6 +32,7 @@ static volatile uint8_t cdc_tx_busy;
 static volatile uint16_t cdc_tx_last_packet_length;
 
 static volatile uint32_t cdc_reset_generation;
+static USB_CDC_ResetCallback_t cdc_reset_callback;
 
 static uint16_t USB_CDC_RingCount(uint16_t write,
                                   uint16_t read,
@@ -172,6 +173,16 @@ void USB_CDC_Reset(void)
     {
         __enable_irq();
     }
+
+    if (cdc_reset_callback != 0)
+    {
+        cdc_reset_callback();
+    }
+}
+
+void USB_CDC_RegisterResetCallback(USB_CDC_ResetCallback_t callback)
+{
+    cdc_reset_callback = callback;
 }
 
 uint16_t USB_CDC_GetRxCount(void)

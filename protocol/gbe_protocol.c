@@ -4,6 +4,7 @@
 #include "bsp_ltr329.h"
 #include "log.h"
 #include "bsp_ir.h"
+#include "usb_cdc.h"
 #include <string.h>
 
 typedef struct
@@ -19,6 +20,20 @@ typedef struct
 } GBE_IR_TxContext_t;
 static GBE_IR_TxContext_t g_ir_tx;
 
+static void gbe_protocol_usb_reset(const Frame_t *frame)
+{
+    /* 红外可以继续发完，但不能向新会话回复旧请求。 */
+    g_ir_tx.sequence = 0U;
+    g_ir_tx.pending = 0U;
+    gb_protocol_session_reset();
+}
+/* 新握手回调 */
+static void gbe_protocol_new_session(const Frame_t *frame)
+{
+    (void)frame;
+    g_ir_tx.sequence = 0U;
+    g_ir_tx.pending = 0U;
+}
 static void gbe_protocol_pc_request_motion(const Frame_t *frame)
 {
     uint8_t response[2];
@@ -240,7 +255,7 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
     g_ir_tx.pending = 1; // 参数有效且发送已启动，保留请求直到响应入队
 }
 
-static gb_request_callback_t gb_callback[2] = {NULL};
+static gb_request_callback_t gb_callback[3] = {NULL};
 uint8_t payload[164] = {0};
 static void gbe_protocol_ir_receive(const IR_ReceiveEvent_t *event)
 {
@@ -348,11 +363,13 @@ static void gbe_protocol_ir_receive(const IR_ReceiveEvent_t *event)
 void gbe_protocol_init(void)
 {
     gb_protocol_init();
+    USB_CDC_RegisterResetCallback(gbe_protocol_usb_reset);
 
     // 注册回调给下层gb.c使用,因为下层不能直接调用上层函数，防止重复依赖
     gb_callback[0] = gbe_protocol_pc_request_motion;
     gb_callback[1] = gbe_protocol_pc_request_ir_tansimit;
-    gb_protocol_register_callback(gb_callback, 2);
+    gb_callback[2] = gbe_protocol_new_session;
+    gb_protocol_register_callback(gb_callback, 3);
 
     IR_RegisterReceiveCallback(gbe_protocol_ir_receive);
 }

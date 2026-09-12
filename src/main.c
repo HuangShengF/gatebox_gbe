@@ -183,10 +183,6 @@ int main(void)
    if (USB_Config(system_clock) == SUCCESS)
    {
        USB_Init();
-
-       while (bDeviceState != CONFIGURED)
-       {
-       }
    }
     log_init();
     delay_init();

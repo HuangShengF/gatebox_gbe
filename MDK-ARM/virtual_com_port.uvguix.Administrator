@@ -3615,9 +3615,9 @@
       </Doc>
       <Doc>
         <Name>..\src\main.c</Name>
-        <ColumnNumber>16</ColumnNumber>
+        <ColumnNumber>0</ColumnNumber>
         <TopLine>228</TopLine>
-        <CurrentLine>248</CurrentLine>
+        <CurrentLine>250</CurrentLine>
         <Folding>1</Folding>
         <ContractedFolders></ContractedFolders>
         <PaneID>0</PaneID>
@@ -3714,9 +3714,9 @@
       </Doc>
       <Doc>
         <Name>..\protocol\gbe_protocol.c</Name>
-        <ColumnNumber>5</ColumnNumber>
-        <TopLine>384</TopLine>
-        <CurrentLine>396</CurrentLine>
+        <ColumnNumber>0</ColumnNumber>
+        <TopLine>228</TopLine>
+        <CurrentLine>234</CurrentLine>
         <Folding>1</Folding>
         <ContractedFolders></ContractedFolders>
         <PaneID>0</PaneID>

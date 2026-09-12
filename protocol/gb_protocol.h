@@ -7,6 +7,7 @@
 #define PROTOCOL_MAGIC          0xB3A5
 #define PROTOCOL_HEADER_SIZE    8
 #define PROTOCOL_MAX_PAYLOAD    2048
+#define PROTOCOL_MAX_TX_PAYLOAD 164U  // 当前最大为AEHA通知Payload
 #define PROTOCOL_MIN_FRAME      10
 
 // ============ 命令定义 ============
@@ -97,6 +98,7 @@ bool gb_protocol_send_notification(uint16_t command,const uint8_t *payload, uint
 uint16_t gb_protocol_crc16(const uint8_t *data, uint16_t len);
 void gb_protocol_process_byte(uint8_t byte);
 void gb_protocol_init(void);
+void gb_protocol_session_reset(void);
 uint16_t TIM7_GetMs(void);
 bool Protocol_SendFrame(uint16_t command, uint16_t sequence, const uint8_t *payload, uint16_t payload_len);
 void gb_protocol_register_callback(gb_request_callback_t *callback, uint8_t num);
