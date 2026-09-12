@@ -20,7 +20,7 @@ typedef struct
 } GBE_IR_TxContext_t;
 static GBE_IR_TxContext_t g_ir_tx;
 
-static void gbe_protocol_usb_reset(const Frame_t *frame)
+static void gbe_protocol_usb_reset(void)
 {
     /* 红外可以继续发完，但不能向新会话回复旧请求。 */
     g_ir_tx.sequence = 0U;
@@ -95,7 +95,7 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
         repeat_count = frame->payload[4];
         if ((frame->payload_size != 5) || (repeat_count == 0))
         {
-            gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
             return;
         }
 

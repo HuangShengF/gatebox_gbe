@@ -75,7 +75,7 @@ void gb_protocol_session_reset(void)
 // ============ 发送帧 ============
 bool Protocol_SendFrame(uint16_t command, uint16_t sequence, const uint8_t *payload, uint16_t payload_len)
 {
-    uint8_t tx_buf[PROTOCOL_HEADER_SIZE + PROTOCOL_MAX_TX_PAYLOAD + 10U] = {0};
+    uint8_t tx_buf[PROTOCOL_HEADER_SIZE + PROTOCOL_MAX_TX_PAYLOAD + 2U] = {0};
 
     if ((payload_len > PROTOCOL_MAX_TX_PAYLOAD)
         || ((payload_len != 0U) && (payload == NULL)))

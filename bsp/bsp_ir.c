@@ -355,10 +355,33 @@ void IR_SendNecRepeat(void)
     IR_FrameStart();
 }
 
+// 发射异常停止函数
+static void IR_TransmitAbort(void)
+{
+    IR_Stop();
+    TIM_Enable(TIM6, DISABLE);
+    TIM_ClrIntPendingBit(TIM6, TIM_INT_UPDATE);
+
+    ir_ctrl.state = IR_STATE_IDLE;
+    ir_ctrl.frame_done = 0U;
+    ir_ctrl.nec_repeat_frame = 0U;
+    ir_ctrl.is_sending = 0U;
+}
+
 static void IR_TransmitPoll(void)
 {
+    uint16_t elapsed_time;
+
     if(!ir_ctrl.is_sending)
     {
+        return;
+    }
+
+    // 防止发射状态机发生异常导致发射一直处于忙碌状态（后续PC下发的红外指令全部返回busy）
+    elapsed_time = (uint16_t)(TIM_GetCnt(TIM7) - ir_ctrl.frame_start_ms);
+    if((elapsed_time > 3000U) && (ir_ctrl.frame_done == 0U))
+    {
+        IR_TransmitAbort();
         return;
     }
     // 当前的帧可能没有发射完成，不能再次发送
@@ -375,7 +398,7 @@ static void IR_TransmitPoll(void)
         return;
     }
 
-    uint16_t elapsed_time = 0;
+    elapsed_time = 0U;
 
     switch(ir_ctrl.protocol)
     {
