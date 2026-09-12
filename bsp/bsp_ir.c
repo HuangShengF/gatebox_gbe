@@ -106,7 +106,7 @@ static IR_RxFrame_t * volatile ir_cap_read = &ir_cap_B;
 /* 微秒转定时器计数值 (TIM6: 24MHz / 24 = 1MHz, 1us per tick) */
 #define US_TO_TICKS(us) (us)
 
-/* 在其他模块初始化前，尽早将红外发射脚固定为低电平。 */
+/* 在其他模块初始化前，尽早将低有效的红外发射脚主动输出为高电平。 */
 void IR_TxPinIdleInit(void)
 {
     GPIO_InitType GPIO_InitStructure;
@@ -117,12 +117,11 @@ void IR_TxPinIdleInit(void)
     GPIO_InitStruct(&GPIO_InitStructure);
     GPIO_InitStructure.Pin = GPIO_PIN_2;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
-    GPIO_InitStructure.GPIO_Pull = GPIO_Pull_Up;
+    GPIO_InitStructure.GPIO_Pull = GPIO_No_Pull;
     GPIO_InitStructure.GPIO_Current = GPIO_DC_12mA;
     GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
     GPIO_InitPeripheral(GPIOA, &GPIO_InitStructure);
-    // GPIO_ResetBits(GPIOA, GPIO_PIN_2);
-    GPIO_WriteBit(GPIOA, GPIO_PIN_2, Bit_SET);
+    GPIO_SetBits(GPIOA, GPIO_PIN_2);
 }
 
 void IR_PWM_Init(void)
@@ -150,20 +149,21 @@ void IR_PWM_Init(void)
 
     TIM_InitOcStruct(&TIM_OCInitStructure);
     TIM_OCInitStructure.OcMode = TIM_OCMODE_PWM1;
-    TIM_OCInitStructure.OutputState = TIM_OUTPUT_STATE_DISABLE;
+    TIM_OCInitStructure.OutputState = TIM_OUTPUT_STATE_ENABLE;
     TIM_OCInitStructure.Pulse = 0;
-    TIM_OCInitStructure.OcPolarity = TIM_OC_POLARITY_HIGH;
+    /* 低有效输出：Mark期间输出低脉冲，空闲状态保持高电平。 */
+    TIM_OCInitStructure.OcPolarity = TIM_OC_POLARITY_LOW;
     TIM_InitOc3(TIM2, &TIM_OCInitStructure);
 
     TIM_ConfigOc3Preload(TIM2, TIM_OC_PRE_LOAD_ENABLE);
     TIM_ConfigArPreload(TIM2, ENABLE);
-    TIM_EnableCapCmpCh(TIM2, TIM_CH_3, TIM_CAP_CMP_DISABLE);
+    TIM_EnableCapCmpCh(TIM2, TIM_CH_3, TIM_CAP_CMP_ENABLE);
 
     /* TIM2输出已经处于安全状态，再将PA2切换到TIM2_CH3。 */
     GPIO_InitStruct(&GPIO_InitStructure);
     GPIO_InitStructure.Pin = GPIO_PIN_2;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_InitStructure.GPIO_Pull = GPIO_Pull_Down;
+    GPIO_InitStructure.GPIO_Pull = GPIO_No_Pull;
     GPIO_InitStructure.GPIO_Current = GPIO_DC_12mA;
     GPIO_InitStructure.GPIO_Alternate = GPIO_AF2_TIM2;
     GPIO_InitStructure.GPIO_Slew_Rate = GPIO_Slew_Rate_High;
@@ -270,18 +270,19 @@ void IR_Init(void)
 
 void IR_Start(void)
 {
-    // 设置CCR为1/2占空比，提高Mark期间的平均发射功率
-    TIM2->CCDAT3 = (TIM2->AR + 1U) / 3; 
-    // 使能CH3输出
+    // 低有效载波，低电平有效时间约为1/3周期
+    TIM2->CCDAT3 = (TIM2->AR + 1U) / 3;
+    TIM_GenerateEvent(TIM2, TIM_EVT_SRC_UPDATE);
+    // CH3保持使能，由CCR控制发射和空闲电平
     TIM_EnableCapCmpCh(TIM2, TIM_CH_3, TIM_CAP_CMP_ENABLE);
 }
 
 void IR_Stop(void)
 {
-    // CCR=0，PWM输出恒低电平
+    // 低有效PWM在CCR=0时，由TIM2主动输出高电平
     TIM2->CCDAT3 = 0;
-    // 关闭CH3输出
-    TIM_EnableCapCmpCh(TIM2, TIM_CH_3, TIM_CAP_CMP_DISABLE);
+    TIM_GenerateEvent(TIM2, TIM_EVT_SRC_UPDATE);
+    TIM_EnableCapCmpCh(TIM2, TIM_CH_3, TIM_CAP_CMP_ENABLE);
 }
 
 /* 设置定时器周期并重启 */

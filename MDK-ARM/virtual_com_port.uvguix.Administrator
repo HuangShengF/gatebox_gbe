@@ -3687,9 +3687,9 @@
       </Doc>
       <Doc>
         <Name>..\bsp\bsp_ir.c</Name>
-        <ColumnNumber>4</ColumnNumber>
+        <ColumnNumber>2</ColumnNumber>
         <TopLine>364</TopLine>
-        <CurrentLine>381</CurrentLine>
+        <CurrentLine>382</CurrentLine>
         <Folding>1</Folding>
         <ContractedFolders></ContractedFolders>
         <PaneID>0</PaneID>
@@ -3714,9 +3714,9 @@
       </Doc>
       <Doc>
         <Name>..\protocol\gbe_protocol.c</Name>
-        <ColumnNumber>39</ColumnNumber>
-        <TopLine>285</TopLine>
-        <CurrentLine>322</CurrentLine>
+        <ColumnNumber>12</ColumnNumber>
+        <TopLine>339</TopLine>
+        <CurrentLine>354</CurrentLine>
         <Folding>1</Folding>
         <ContractedFolders></ContractedFolders>
         <PaneID>0</PaneID>

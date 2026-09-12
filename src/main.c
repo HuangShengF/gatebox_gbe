@@ -178,7 +178,7 @@ int main(void)
     uint16_t cdc_rx_length;
     uint16_t i;
     system_clock = SYSCLK_VALUE_48MHz;
-    IR_TxPinIdleInit(); /* 未发射时，尽早将PA2固定为低电平 */
+    IR_TxPinIdleInit(); /* 未发射时，尽早将PA2固定为高电平 */
     TIM3_Configuration(); /* USB中断可能访问TIM3，必须先初始化 */
 
    if (USB_Config(system_clock) == SUCCESS)
