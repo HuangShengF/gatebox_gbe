@@ -73,6 +73,13 @@ typedef struct
 #define SET_CONTROL_LINE_STATE      0x22
 #define SEND_BREAK                  0x23
 
+#define HID_GET_REPORT              0x01
+#define HID_GET_IDLE                0x02
+#define HID_GET_PROTOCOL            0x03
+#define HID_SET_REPORT              0x09
+#define HID_SET_IDLE                0x0A
+#define HID_SET_PROTOCOL            0x0B
+
 /* Exported functions ------------------------------------------------------- */
 void Virtual_Com_Port_init(void);
 void Virtual_Com_Port_Reset(void);
@@ -89,6 +96,12 @@ uint8_t *Virtual_Com_Port_GetStringDescriptor(uint16_t);
 
 uint8_t *Virtual_Com_Port_GetLineCoding(uint16_t Length);
 uint8_t *Virtual_Com_Port_SetLineCoding(uint16_t Length);
+uint8_t *HID_GetDescriptor(uint16_t Length);
+uint8_t *HID_GetReportDescriptor(uint16_t Length);
+uint8_t *HID_GetReport(uint16_t Length);
+uint8_t *HID_SetReport(uint16_t Length);
+uint8_t *HID_GetIdle(uint16_t Length);
+uint8_t *HID_GetProtocol(uint16_t Length);
 
 #endif /* __usb_prop_H */
 

@@ -174,11 +174,6 @@ void EXTI3_IRQHandler(void)
         EXTI_ClrITPendBit(EXTI_LINE3);
         PIR_RecordChangeFromISR(PIR_CHANGED_LEFT);
 
-        // 无运动的时候运动传感器是低电平，有人运动的时候是高电平
-        if (GPIO_ReadInputDataBit(GPIOA, GPIO_PIN_3) != RESET)
-        {
-            USB_WakeupRequestFromISR();
-        }
     }
 }
 
@@ -190,11 +185,22 @@ void EXTI9_5_IRQHandler(void)
         /* Clear the EXTI line 7 pending bit */
         EXTI_ClrITPendBit(EXTI_LINE7);
         PIR_RecordChangeFromISR(PIR_CHANGED_RIGHT);
-        if (GPIO_ReadInputDataBit(GPIOA, GPIO_PIN_7) != RESET)
-        {
-            USB_WakeupRequestFromISR();
-        }
     }
+}
+
+void TIM4_IRQHandler(void)
+{
+    PIR_WakeupTimerFromISR();
+}
+
+void SUSP_Callback(void)
+{
+    PIR_WakeupSuspend();
+}
+
+void WKUP_Callback(void)
+{
+    PIR_WakeupResume();
 }
 
 /**
