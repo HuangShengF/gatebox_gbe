@@ -380,8 +380,11 @@ void gbe_protocol_upload_ambient_light(void)
     uint32_t illuminance;
     uint16_t current_time = 0;
     static uint16_t last_time = 0;
+    static uint16_t last_reinit_time = 0;
+    static uint8_t i2c_error_count = 0;
     float lux = 0;
     uint8_t ret;
+    int8_t reinit_ret;
     uint8_t payload[5];
 
     // 可以通过TIM7_GetMs()获取当前时间，然后与上次上传时间进行比较，如果超过500ms则上传数据
@@ -393,6 +396,31 @@ void gbe_protocol_upload_ambient_light(void)
     last_time = current_time;
 
     ret = LTR329_CalculateLux(LTR329_GAIN_8X, LTR329_INT_100MS, 1.0, &lux);
+    if (ret == LTR329_ERR_I2C)
+    {
+        if (i2c_error_count < 3U)
+        {
+            i2c_error_count++;
+        }
+
+        /* 连续3次I2C错误后尝试恢复，限制重初始化频率，避免反复阻塞主循环。 */
+        if ((i2c_error_count >= 3U) &&
+            ((uint16_t)(current_time - last_reinit_time) >= 2000U))
+        {
+            i2c_error_count = 0U;
+            last_reinit_time = current_time;
+            reinit_ret = LTR329_Init(LTR329_GAIN_8X,
+                                     LTR329_INT_100MS,
+                                     LTR329_RATE_200MS);
+            printf("LTR329 reinit: %d\r\n", reinit_ret);
+        }
+    }
+    else
+    {
+        /* 能读到状态寄存器说明I2C已经恢复。 */
+        i2c_error_count = 0U;
+    }
+
     if (ret == LTR329_ERR_NO_NEW_DATA)
     {
         // 没有更新数据
