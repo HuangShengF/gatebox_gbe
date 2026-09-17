@@ -397,7 +397,7 @@ void gbe_protocol_upload_ambient_light(void)
     }
     last_time = current_time;
 
-    ret = LTR329_CalculateLux(LTR329_GAIN_8X, LTR329_INT_100MS, 1.0, &lux);
+    ret = LTR329_CalculateLux(LTR329_GAIN_96X, LTR329_INT_200MS, 1.0, &lux);
     if (ret == LTR329_ERR_I2C)
     {
         need_reinit = 1U;
@@ -441,9 +441,9 @@ void gbe_protocol_upload_ambient_light(void)
         ((uint16_t)(current_time - last_reinit_time) >= 2000U))
     {
         last_reinit_time = current_time;
-        reinit_ret = LTR329_Init(LTR329_GAIN_8X,
-                                 LTR329_INT_100MS,
-                                 LTR329_RATE_200MS);
+        reinit_ret = LTR329_Init(LTR329_GAIN_96X,
+                                 LTR329_INT_200MS,
+                                 LTR329_RATE_500MS);
         printf("LTR329 reinit: %d\r\n", reinit_ret);
         if (reinit_ret == LTR329_OK)
         {
@@ -471,7 +471,7 @@ void gbe_protocol_upload_ambient_light(void)
         // 单位转换为0.1 lx，并四舍五入
         illuminance = (uint32_t)(lux * 10.0f + 0.5f);
     }
-    printf("illuminance: %d\n", illuminance);
+    // printf("illuminance: %d\n", illuminance);
     // uint32小端拼接，不能直接使用结构体
     payload[1] = (uint8_t)(illuminance & 0xFFU);
     payload[2] = (uint8_t)((illuminance >> 8) & 0xFFU);

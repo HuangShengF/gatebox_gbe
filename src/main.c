@@ -188,7 +188,7 @@ int main(void)
     log_init();
     delay_init();
 	Clock_Print();
-    int ret = LTR329_Init(LTR329_GAIN_8X, LTR329_INT_100MS, LTR329_RATE_200MS);
+    int ret = LTR329_Init(LTR329_GAIN_96X, LTR329_INT_200MS, LTR329_RATE_500MS);
     if(ret != LTR329_OK)
     {
         printf("LTR329_Init error %d\r\n", ret);

@@ -271,7 +271,7 @@ void IR_Init(void)
 void IR_Start(void)
 {
     // 低有效载波，低电平有效时间约为1/3周期
-    TIM2->CCDAT3 = (TIM2->AR + 1U) / 3;
+    TIM2->CCDAT3 = ((TIM2->AR + 1U) * 2) / 3;
     TIM_GenerateEvent(TIM2, TIM_EVT_SRC_UPDATE);
     // CH3保持使能，由CCR控制发射和空闲电平
     TIM_EnableCapCmpCh(TIM2, TIM_CH_3, TIM_CAP_CMP_ENABLE);
@@ -313,14 +313,14 @@ static void IR_FrameStart(void)
         TIM2->AR = 600;
         //TIM2->CCDAT3 = 300; // 1/2 占空比
         // TIM2->CCDAT3 = 200; // 1/2 占空比
-        TIM2->CCDAT3 = (TIM2->AR + 1U)  / 3;
+        TIM2->CCDAT3 = ((TIM2->AR + 1U) * 2) / 3;
     }
     else
     {
         // NEC/AEHA: 38kHz, 24MHz / 632 = 37.97kHz
         TIM2->AR = 631;
         // TIM2->CCDAT3 = 211;
-        TIM2->CCDAT3 = (TIM2->AR + 1U)  / 3;
+        TIM2->CCDAT3 = ((TIM2->AR + 1U) * 2) / 3;
     }
 
     uint16_t start_mark_time = 0;
