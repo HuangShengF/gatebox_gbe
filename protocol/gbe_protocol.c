@@ -78,7 +78,7 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
     }
     if (frame->payload == NULL || frame->payload_size < 1U)
     {
-        gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 0U);
+        gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 1U);
         return;
     }
     // PC发来的数据进行解码然后进行发射
@@ -89,13 +89,13 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
     {
         if (frame->payload_size != 5U)
         {
-            gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 5U);
             return;
         }
         repeat_count = frame->payload[4];
-        if ((frame->payload_size != 5) || (repeat_count == 0))
+        if (repeat_count == 0U)
         {
-            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 3U);
             return;
         }
 
@@ -118,7 +118,7 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
         uint16_t raw_byte_count;
         if (frame->payload_size < 6U)
         {
-            gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 6U);
             return;
         }
         customer_code = (uint16_t)frame->payload[1] | ((uint16_t)frame->payload[2] << 8U);
@@ -130,14 +130,23 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
          */
         if ((data_bit_count < 28U) || (data_bit_count > 1260U))
         {
-            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 2U);
             return;
         }
         data_byte_count = (uint16_t)((data_bit_count + 7U) / 8U);
 
         if (frame->payload_size !=(uint16_t)(6U + data_byte_count))
         {
-            gb_protocol_send_error(frame,ERR_INVALID_PAYLOAD,0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, (uint16_t)(6U + data_byte_count));
+            return;
+        }
+
+        /* 最后一个Data字节未使用的高位必须为0，不能静默截断。 */
+        if (((data_bit_count & 7U) != 0U) &&
+            ((frame->payload[4U + data_byte_count] &
+              (uint8_t)(0xFFU << (data_bit_count & 7U))) != 0U))
+        {
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 3U);
             return;
         }
         
@@ -145,7 +154,7 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
 
         if (repeat_count == 0U)
         {
-            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 4U);
             return;
         }
         /*
@@ -156,7 +165,7 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
         raw_byte_count = (uint16_t)((raw_bit_count + 7U) / 8U);
         if (raw_byte_count > sizeof(g_ir_tx.ir_tx_data))
         {
-            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 2U);
             return;
         }
         memset(g_ir_tx.ir_tx_data, 0, raw_byte_count);
@@ -188,7 +197,7 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
         /* code */
         if (frame->payload_size != 6U)
         {
-            gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 6U);
             return;
         }
         /*
@@ -220,14 +229,24 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
             break;
 
         default:
-            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 3U);
             return;
         }
 
         /* 检查Address未使用的高位是否为0 */
         if ((addr & (uint16_t)(~address_mask)) != 0U)
         {
-            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 1U);
+            return;
+        }
+        if ((data & 0x80U) != 0U)
+        {
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 2U);
+            return;
+        }
+        if (repeat_count == 0U)
+        {
+            gb_protocol_send_error(frame, ERR_INVALID_PARAM, 4U);
             return;
         }
 
