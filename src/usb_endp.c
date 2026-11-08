@@ -40,6 +40,7 @@
 #include "usb_istr.h"
 #include "usb_pwr.h"
 #include "usb_cdc.h"
+#include "bsp_pir.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
@@ -80,7 +81,10 @@ void EP3_OUT_Callback(void)
  */
 void SOF_Callback(void)
 {
-    // USB_WakeupOnSof();
+    if (bDeviceState != SUSPENDED)
+    {
+        PIR_WakeupOnSof();
+    }
     if(bDeviceState == CONFIGURED)
     {
         USB_CDC_TxProcess();

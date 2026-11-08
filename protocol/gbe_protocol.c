@@ -53,6 +53,52 @@ static void gbe_protocol_pc_request_motion(const Frame_t *frame)
     gb_protocol_send_response(frame, response, sizeof(response));
 }
 
+static void gbe_protocol_pc_request_pir_wakeup_set(const Frame_t *frame)
+{
+    if (frame == NULL)
+    {
+        return;
+    }
+    if ((frame->payload_size != 1U) || (frame->payload == NULL))
+    {
+        gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 1U);
+        return;
+    }
+    if (frame->payload[0] > 1U)
+    {
+        gb_protocol_send_error(frame, ERR_INVALID_PARAM, 0U);
+        return;
+    }
+    if (PIR_SetWakeupEnabled(frame->payload[0]) == 0U)
+    {
+        gb_protocol_send_error(frame, ERR_INTERNAL, 0U);
+        return;
+    }
+    /* 先应用再应答；响应丢失后同值重试不会重置检测进度。 */
+    gb_protocol_send_response(frame, NULL, 0U);
+}
+
+static void gbe_protocol_pc_request_pir_wakeup_get(const Frame_t *frame)
+{
+    uint8_t enabled;
+
+    if (frame == NULL)
+    {
+        return;
+    }
+    if (frame->payload_size != 0U)
+    {
+        gb_protocol_send_error(frame, ERR_INVALID_PAYLOAD, 0U);
+        return;
+    }
+    if (PIR_GetWakeupEnabled(&enabled) == 0U)
+    {
+        gb_protocol_send_error(frame, ERR_INTERNAL, 0U);
+        return;
+    }
+    gb_protocol_send_response(frame, &enabled, sizeof(enabled));
+}
+
 static uint8_t gbe_ir_aeha_customer_parity(uint16_t customer_code)
 {
     return (uint8_t)((customer_code ^
@@ -274,7 +320,7 @@ static void gbe_protocol_pc_request_ir_tansimit(const Frame_t *frame)
     g_ir_tx.pending = 1; // 参数有效且发送已启动，保留请求直到响应入队
 }
 
-static gb_request_callback_t gb_callback[3] = {NULL};
+static gb_request_callback_t gb_callback[5] = {NULL};
 uint8_t payload[164] = {0};
 static void gbe_protocol_ir_receive(const IR_ReceiveEvent_t *event)
 {
@@ -388,7 +434,9 @@ void gbe_protocol_init(void)
     gb_callback[0] = gbe_protocol_pc_request_motion;
     gb_callback[1] = gbe_protocol_pc_request_ir_tansimit;
     gb_callback[2] = gbe_protocol_new_session;
-    gb_protocol_register_callback(gb_callback, 3);
+    gb_callback[3] = gbe_protocol_pc_request_pir_wakeup_set;
+    gb_callback[4] = gbe_protocol_pc_request_pir_wakeup_get;
+    gb_protocol_register_callback(gb_callback, 5);
 
     IR_RegisterReceiveCallback(gbe_protocol_ir_receive);
 }

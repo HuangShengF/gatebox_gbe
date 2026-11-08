@@ -20,6 +20,14 @@
 #define CMD_MOTION_REQ        0x0303
 #define CMD_MOTION_RESP       0x1303
 
+// PIR唤醒开关：仅保存在RAM，上电默认关闭
+#define CMD_PIR_WAKEUP_SET_REQ   0x0501
+#define CMD_PIR_WAKEUP_SET_RESP  0x1501
+#define CMD_PIR_WAKEUP_SET_ERR   0x3501
+#define CMD_PIR_WAKEUP_GET_REQ   0x0502
+#define CMD_PIR_WAKEUP_GET_RESP  0x1502
+#define CMD_PIR_WAKEUP_GET_ERR   0x3502
+
 // IR红外发送：PC->MCU
 #define CMD_IR_SEND_REQ        0x0402
 #define CMD_IR_SEND_RESP       0x1402

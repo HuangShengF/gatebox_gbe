@@ -7,7 +7,9 @@ static gb_protocol_rx_t g_ctx;
 #define MOTION_CALLBACK_ID 0U
 #define IR_SEND_CALLBACK_ID 1U
 #define RESET_SESSION       2U
-#define CALLBACK_COUNT 3U
+#define PIR_WAKEUP_SET_CALLBACK_ID 3U
+#define PIR_WAKEUP_GET_CALLBACK_ID 4U
+#define CALLBACK_COUNT 5U
 static gb_request_callback_t gbe_callback[CALLBACK_COUNT] = {NULL};
 void TIM7_Configuration(void);
 
@@ -281,6 +283,14 @@ static void Handle_Frame(const Frame_t *frame)
         // 使用回调
         if(gbe_callback[IR_SEND_CALLBACK_ID] == NULL) return;
         gbe_callback[IR_SEND_CALLBACK_ID](frame);
+        break;
+    case CMD_PIR_WAKEUP_SET_REQ:
+        if(gbe_callback[PIR_WAKEUP_SET_CALLBACK_ID] == NULL) return;
+        gbe_callback[PIR_WAKEUP_SET_CALLBACK_ID](frame);
+        break;
+    case CMD_PIR_WAKEUP_GET_REQ:
+        if(gbe_callback[PIR_WAKEUP_GET_CALLBACK_ID] == NULL) return;
+        gbe_callback[PIR_WAKEUP_GET_CALLBACK_ID](frame);
         break;
     default:
         // 未知命令
