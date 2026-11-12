@@ -509,6 +509,8 @@ static bool IsLeaderMark(uint16_t mark)
     return (IR_IsNear(mark, NEC_START_MARK) || IR_IsNear(mark, AEHA_START_MARK) || IR_IsNear(mark, SONY_START_MARK));
 }
 
+static void IR_FinishEvent(void);
+
 static void IR_ProcessDecodedFrame(void)
 {
     uint16_t byte_count;
@@ -552,6 +554,13 @@ static void IR_ProcessDecodedFrame(void)
         {
             ir_last_frame.repeat_count++; // 重复帧数加1
         }
+    }
+    else
+    {
+        /* 新按键到来时先上报旧事件，再开始统计新事件。 */
+        IR_FinishEvent();
+        memcpy(&ir_last_frame, &ir_decoded, sizeof(ir_last_frame));
+        ir_last_frame.repeat_count = 1U;
     }
 
     // // 防止有些遥控器发送完整帧
@@ -1124,8 +1133,20 @@ void TIM6_IRQHandler(void)
             break;
 
         case IR_STATE_STOP:
+            if (ir_ctrl.protocol == IR_PROTOCOL_AEHA)
+            {
+                /* 长帧可能超过130ms，仍需保证停止Mark后至少8ms空闲。 */
+                IR_Stop();
+                ir_ctrl.state = IR_STATE_TRAILER_SPACE;
+                IR_SetTimerPeriod(AEHA_TRAILER_SPACE);
+                break;
+            }
             // 停止位发送完成
             IR_FrameFinish(); // 这里不会吧is_sending置为0；只有在全部repeat帧发完才会置0
+            break;
+
+        case IR_STATE_TRAILER_SPACE:
+            IR_FrameFinish();
             break;
 
         default:

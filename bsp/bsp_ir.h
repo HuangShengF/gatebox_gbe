@@ -19,7 +19,8 @@ typedef enum {
     IR_STATE_START_SPACE,
     IR_STATE_DATA_MARK,
     IR_STATE_DATA_SPACE,
-    IR_STATE_STOP
+    IR_STATE_STOP,
+    IR_STATE_TRAILER_SPACE
 } IR_State_t;
 
 /* 解码结果错误码 */
@@ -50,6 +51,7 @@ typedef enum
 #define AEHA_BIT1_SPACE     1275
 #define AEHA_BIT0_SPACE     425
 #define AEHA_STOP_MARK      425
+#define AEHA_TRAILER_SPACE  8000
 
 /* Sony协议时序 (us) */
 #define SONY_START_MARK     2400

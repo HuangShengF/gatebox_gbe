@@ -41,6 +41,7 @@
 #include "usb_desc.h"
 #include "usb_pwr.h"
 #include "usb_cdc.h"
+#include "bsp_pir.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
@@ -160,7 +161,8 @@ void Virtual_Com_Port_init(void)
  */
 void Virtual_Com_Port_Reset(void)
 {
-    // USB_WakeupReset();
+    /* 只取消PIR检测；开关配置及本轮已唤醒锁存保持不变。 */
+    PIR_WakeupResume();
     USB_CDC_Reset();
     hid_idle_rate = 0;
     hid_protocol = 1;
